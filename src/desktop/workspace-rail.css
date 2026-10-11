@@ -638,14 +638,16 @@ ul { margin: 0; padding: 0; list-style: none; }
 }
 
 [data-testid='diff-mode'],
-[data-testid='diff-layout'] {
+[data-testid='diff-layout'],
+[data-testid='diff-change-nav'] {
   display: flex;
   flex: none;
   gap: 4px;
 }
 
 [data-testid='diff-mode'] button,
-[data-testid='diff-layout'] button {
+[data-testid='diff-layout'] button,
+[data-testid='diff-change-nav'] button {
   padding: 2px 8px;
   border: 1px solid rgba(58, 58, 56, 0.25);
   border-radius: 2px;
@@ -661,6 +663,11 @@ ul { margin: 0; padding: 0; list-style: none; }
   background: var(--forest);
   border-color: var(--forest);
   color: white;
+}
+
+[data-testid='diff-change-nav'] button:disabled {
+  opacity: 0.4;
+  cursor: default;
 }
 
 [data-testid='empty-diff'],
@@ -773,6 +780,15 @@ ul { margin: 0; padding: 0; list-style: none; }
   overflow-x: auto;
   overflow-y: hidden;
   white-space: pre;
+}
+
+[data-testid='diff-side-old'] {
+  flex: none;
+}
+
+[data-testid='diff-side-split'] {
+  flex: 0 0 8px;
+  align-self: stretch;
 }
 
 [data-testid='diff-side-old'] [data-testid='diff-old-number'],

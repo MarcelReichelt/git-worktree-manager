@@ -464,6 +464,7 @@ describe('terminal font and colors', () => {
       commitFileWidth: 240,
       diffMode: 'folded',
       diffLayout: 'inline',
+      diffSideShare: 0.5,
     });
   });
 });

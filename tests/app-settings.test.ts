@@ -18,6 +18,7 @@ import {
   saveContentColor,
   saveDefaultLayout,
   saveDiffLayout,
+  saveDiffSideShare,
   saveDiffMode,
   saveIdeCommand,
   saveOpenRepositoryTabs,
@@ -74,6 +75,7 @@ describe('app settings', () => {
       commitFileWidth: 240,
       diffMode: 'folded',
       diffLayout: 'inline',
+      diffSideShare: 0.5,
     });
   });
 
@@ -206,6 +208,7 @@ describe('app settings', () => {
       commitFileWidth: 240,
       diffMode: 'folded',
       diffLayout: 'inline',
+      diffSideShare: 0.5,
     });
   });
 
@@ -250,6 +253,7 @@ describe('app settings', () => {
       commitFileWidth: 240,
       diffMode: 'folded',
       diffLayout: 'inline',
+      diffSideShare: 0.5,
     });
   });
 
@@ -295,6 +299,7 @@ describe('app settings', () => {
       commitFileWidth: 240,
       diffMode: 'folded',
       diffLayout: 'inline',
+      diffSideShare: 0.5,
     });
   });
 
@@ -328,6 +333,7 @@ describe('app settings', () => {
       commitFileWidth: 240,
       diffMode: 'folded',
       diffLayout: 'inline',
+      diffSideShare: 0.5,
     });
   });
 
@@ -564,6 +570,7 @@ describe('app settings', () => {
       commitFileWidth: 240,
       diffMode: 'folded',
       diffLayout: 'inline',
+      diffSideShare: 0.5,
     });
   });
 
@@ -607,6 +614,7 @@ describe('app settings', () => {
       commitFileWidth: 240,
       diffMode: 'folded',
       diffLayout: 'inline',
+      diffSideShare: 0.5,
     });
   });
 
@@ -1185,6 +1193,24 @@ describe('app settings', () => {
     expect(readAppSettings(env).diffLayout).toBe('inline');
     expect(readAppSettings(env).diffMode).toBe('full');
     expect(JSON.parse(readFileSync(settingsPath, 'utf8')).theme).toBe('mint');
+  });
+
+  it('saves the side-by-side share and uses half when the saved share is not a number', () => {
+    const root = mkdtempSync(join(tmpdir(), 'git-worktree-manager-app-settings-'));
+    roots.push(root);
+    const settingsPath = join(root, 'app-settings.json');
+    const env = { GIT_WORKTREE_MANAGER_APP_SETTINGS_PATH: settingsPath };
+
+    expect(readAppSettings(env).diffSideShare).toBe(0.5);
+
+    saveDiffSideShare(0.7, env);
+
+    expect(readAppSettings(env).diffSideShare).toBe(0.7);
+    expect(JSON.parse(readFileSync(settingsPath, 'utf8')).diffSideShare).toBe(0.7);
+
+    writeFileSync(settingsPath, '{"diffSideShare":"wide"}\n');
+
+    expect(readAppSettings(env).diffSideShare).toBe(0.5);
   });
 
   it('uses Inline when the saved diff layout is not inline or side', () => {

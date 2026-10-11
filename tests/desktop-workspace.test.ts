@@ -955,6 +955,7 @@ describe('desktop workspace', () => {
       commitFileWidth: 240,
       diffMode: 'folded',
       diffLayout: 'inline',
+      diffSideShare: 0.5,
     });
   });
 
@@ -1003,6 +1004,7 @@ describe('desktop workspace', () => {
       commitFileWidth: 240,
       diffMode: 'folded',
       diffLayout: 'inline',
+      diffSideShare: 0.5,
     });
     expect(JSON.parse(readFileSync(settingsPath, 'utf8')).ideCommand).toBe('cursor');
   });
@@ -9920,6 +9922,75 @@ describe('full file diff', () => {
     expect(fixture.nativeElement.querySelector('[data-testid="diff-mode"]')).not.toBeNull();
     expect(binary.contains(fixture.nativeElement.querySelector('[data-testid="diff-mode"]'))).toBe(false);
   });
+
+  it('jumps to the next and previous change in the full file', async () => {
+    const repoPath = createEmptyRepository(roots);
+    const feature = join(repoPath, '.workspaces', 'feature');
+    git(repoPath, ['branch', 'feature']);
+    git(repoPath, ['worktree', 'add', feature, 'feature']);
+    const lines = Array.from({ length: 100 }, (_, index) => `row-${index}`);
+    lines[30] = 'alpha';
+    lines[80] = 'beta';
+    writeFileSync(join(feature, 'wide.txt'), `${lines.join('\n')}\n`);
+    git(feature, ['add', 'wide.txt']);
+    git(feature, ['commit', '-m', 'Add wide']);
+    lines[30] = 'ALPHA';
+    lines[80] = 'BETA';
+    writeFileSync(join(feature, 'wide.txt'), `${lines.join('\n')}\n`);
+    const fixture = await renderRepository(repoPath);
+    openChangedFile(fixture, 'feature', 'wide.txt');
+
+    expect(fixture.nativeElement.querySelector('[data-testid="diff-change-nav"]')).toBeNull();
+
+    (fixture.nativeElement.querySelector('[data-testid="diff-mode-full"]') as HTMLButtonElement).click();
+    fixture.detectChanges();
+    const diff = fixture.nativeElement.querySelector('[data-testid="diff"]') as HTMLElement;
+    installScrollMetrics(diff, { clientHeight: 40, scrollHeight: 2000, scrollTop: 0 });
+    diff.dispatchEvent(new Event('scroll'));
+    fixture.detectChanges();
+
+    const previous = fixture.nativeElement.querySelector('[data-testid="diff-previous-change"]') as HTMLButtonElement;
+    const next = fixture.nativeElement.querySelector('[data-testid="diff-next-change"]') as HTMLButtonElement;
+    expect(previous.textContent?.trim()).toBe('Previous change');
+    expect(next.textContent?.trim()).toBe('Next change');
+    expect(previous.disabled).toBe(true);
+    expect(next.disabled).toBe(false);
+    expect(diff.textContent).toContain('row-0');
+    expect(diff.textContent).not.toContain('ALPHA');
+
+    next.click();
+    fixture.detectChanges();
+    expect(diff.textContent).toContain('ALPHA');
+    expect(diff.textContent).not.toContain('BETA');
+    expect(diff.textContent).not.toContain('row-0');
+    expect(previous.disabled).toBe(true);
+    expect(next.disabled).toBe(false);
+
+    next.click();
+    fixture.detectChanges();
+    expect(diff.textContent).toContain('BETA');
+    expect(diff.textContent).not.toContain('ALPHA');
+    expect(next.disabled).toBe(true);
+    expect(previous.disabled).toBe(false);
+
+    previous.click();
+    fixture.detectChanges();
+    expect(diff.textContent).toContain('ALPHA');
+    expect(diff.textContent).not.toContain('BETA');
+    expect(next.disabled).toBe(false);
+
+    (fixture.nativeElement.querySelector('[data-testid="diff-layout-side"]') as HTMLButtonElement).click();
+    fixture.detectChanges();
+    installScrollMetrics(diff, { clientHeight: 40, scrollHeight: 2000, scrollTop: 0 });
+    diff.dispatchEvent(new Event('scroll'));
+    fixture.detectChanges();
+    next.click();
+    fixture.detectChanges();
+    const alpha = sideRowContaining(diff, 'ALPHA');
+    expect(alpha.querySelector('[data-testid="diff-side-old"]')?.textContent).toContain('alpha');
+    expect(alpha.querySelector('[data-testid="diff-side-new"]')?.textContent).toContain('ALPHA');
+    expect(diff.textContent).not.toContain('BETA');
+  });
 });
 
 async function render() {
@@ -10392,6 +10463,55 @@ describe('side by side diff', () => {
     const middle = sideRowContaining(quay, 'MIDDLE');
     expect(middle.querySelector('[data-testid="diff-side-old"]')?.textContent).toContain('middle');
     expect(middle.querySelector('[data-testid="diff-side-new"]')?.textContent).toContain('MIDDLE');
+  });
+
+  it('drags the divider between the two sides and restores the share', async () => {
+    const fixture = await render();
+    fixture.nativeElement.querySelector('[data-testid="repository"][data-name="Harbor"]').click();
+    fixture.detectChanges();
+    fixture.nativeElement.querySelector('[data-branch="feature/login"]').click();
+    fixture.detectChanges();
+    fixture.nativeElement.querySelector('[data-testid="changed-file"][data-path="src/login.ts"]').click();
+    fixture.detectChanges();
+    (fixture.nativeElement.querySelector('[data-testid="diff-layout-side"]') as HTMLButtonElement).click();
+    fixture.detectChanges();
+
+    const diff = fixture.nativeElement.querySelector('[data-testid="diff"]') as HTMLElement;
+    const row = diff.querySelector('[data-testid="diff-side-row"]') as HTMLElement;
+    Object.defineProperty(row, 'clientWidth', { configurable: true, value: 400 });
+    const split = row.querySelector('[data-testid="diff-side-split"]') as HTMLElement;
+    const oldSide = row.querySelector('[data-testid="diff-side-old"]') as HTMLElement;
+    expect(split.getAttribute('role')).toBe('separator');
+    expect(split.getAttribute('aria-orientation')).toBe('vertical');
+    expect(oldSide.style.width).toBe('calc(0.5 * (100% - 8px))');
+
+    dragDivider(split, { x: 200, y: 10 }, { x: 280, y: 10 });
+    fixture.detectChanges();
+
+    expect(oldSide.style.width).toBe('calc(0.7 * (100% - 8px))');
+    expect(readAppSettings().diffSideShare).toBe(0.7);
+
+    doubleClickDivider(split);
+    fixture.detectChanges();
+
+    expect(oldSide.style.width).toBe('calc(0.5 * (100% - 8px))');
+    expect(readAppSettings().diffSideShare).toBe(0.5);
+
+    dragDivider(split, { x: 200, y: 10 }, { x: 280, y: 10 });
+    fixture.detectChanges();
+    fixture.destroy();
+
+    const again = await render();
+    again.nativeElement.querySelector('[data-testid="repository"][data-name="Harbor"]').click();
+    again.detectChanges();
+    again.nativeElement.querySelector('[data-branch="feature/login"]').click();
+    again.detectChanges();
+    again.nativeElement.querySelector('[data-testid="changed-file"][data-path="src/login.ts"]').click();
+    again.detectChanges();
+    (again.nativeElement.querySelector('[data-testid="diff-layout-side"]') as HTMLButtonElement).click();
+    again.detectChanges();
+    const restored = again.nativeElement.querySelector('[data-testid="diff-side-old"]') as HTMLElement;
+    expect(restored.style.width).toBe('calc(0.7 * (100% - 8px))');
   });
 });
 

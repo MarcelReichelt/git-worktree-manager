@@ -26,6 +26,7 @@ export interface AppSettings {
   commitFileWidth: number;
   diffMode: DiffMode;
   diffLayout: DiffLayout;
+  diffSideShare: number;
 }
 
 const originalSidebarColor = '#1a3c2b';
@@ -109,6 +110,7 @@ export function readAppSettings(env?: NodeJS.ProcessEnv): AppSettings {
     commitFileWidth: readPixels(stored.commitFileWidth, defaultCommitFileWidth),
     diffMode: diffMode(stored.diffMode),
     diffLayout: diffLayout(stored.diffLayout),
+    diffSideShare: readDiffSideShare(stored.diffSideShare),
   };
 }
 
@@ -299,6 +301,14 @@ export function saveDiffLayout(layout: DiffLayout, env?: NodeJS.ProcessEnv): voi
   mkdirSync(dirname(settingsPath), { recursive: true });
   const current = readSettingsObject(settingsPath);
   current.diffLayout = layout;
+  writeFileSync(settingsPath, `${JSON.stringify(current)}\n`);
+}
+
+export function saveDiffSideShare(share: number, env?: NodeJS.ProcessEnv): void {
+  const settingsPath = resolveAppSettingsPath(env);
+  mkdirSync(dirname(settingsPath), { recursive: true });
+  const current = readSettingsObject(settingsPath);
+  current.diffSideShare = share;
   writeFileSync(settingsPath, `${JSON.stringify(current)}\n`);
 }
 
@@ -519,6 +529,13 @@ function diffLayout(value: unknown): DiffLayout {
     return value;
   }
   return 'inline';
+}
+
+function readDiffSideShare(value: unknown): number {
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    return 0.5;
+  }
+  return Math.min(0.8, Math.max(0.2, value));
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

@@ -37,6 +37,7 @@ import {
   saveDefaultLayout,
   saveDiffLayout,
   saveDiffMode,
+  saveDiffSideShare,
   saveIdeCommand,
   saveOpenRepositoryTabs,
   saveShellCommand,
@@ -153,7 +154,7 @@ import {
   type FoldedRow,
   type FoldOpenings,
   type FullFileDiff,
-  type SideBySideLineRow,
+  type SideBySideRow,
   type SideCell,
 } from '../diff-lines.js';
 
@@ -1409,6 +1410,12 @@ button, input { font: inherit; color: inherit; }
                   <button type="button" data-testid="diff-layout-inline" [attr.aria-pressed]="diffLayout() === 'inline'" (click)="chooseDiffLayout('inline')">Inline</button>
                   <button type="button" data-testid="diff-layout-side" [attr.aria-pressed]="diffLayout() === 'side'" (click)="chooseDiffLayout('side')">Side by side</button>
                 </div>
+                @if (diffMode() === 'full') {
+                  <div data-testid="diff-change-nav" role="group" aria-label="Change">
+                    <button type="button" data-testid="diff-previous-change" [disabled]="!canJumpToChange('previous')" (click)="jumpToChange('previous')">Previous change</button>
+                    <button type="button" data-testid="diff-next-change" [disabled]="!canJumpToChange('next')" (click)="jumpToChange('next')">Next change</button>
+                  </div>
+                }
               </div>
             @if (showDiffTooLarge()) {
               <p data-testid="diff-too-large">This file is too large to show</p>
@@ -1441,7 +1448,7 @@ button, input { font: inherit; color: inherit; }
                             [style.height.px]="diffRowHeight"
                             [style.lineHeight.px]="diffRowHeight"
                           >
-                            <div data-testid="diff-side-old" [attr.data-kind]="side.old.kind">
+                            <div data-testid="diff-side-old" [attr.data-kind]="side.old.kind" [style.width]="diffSideOldWidth()">
                               @if (side.old.kind !== 'empty') {
                                 <span data-testid="diff-old-number">{{ side.old.number ?? '' }}</span>
                               }
@@ -1451,6 +1458,17 @@ button, input { font: inherit; color: inherit; }
                                 }
                               </span>
                             </div>
+                            <div
+                              class="splitter"
+                              role="separator"
+                              data-testid="diff-side-split"
+                              aria-orientation="vertical"
+                              tabindex="0"
+                              (pointerdown)="beginDiffSideSplit($event)"
+                              (pointermove)="moveDiffSideSplit($event)"
+                              (pointerup)="endDiffSideSplit($event)"
+                              (dblclick)="equalizeDiffSides()"
+                            ></div>
                             <div data-testid="diff-side-new" [attr.data-kind]="side.new.kind">
                               @if (side.new.kind !== 'empty') {
                                 <span data-testid="diff-new-number">{{ side.new.number ?? '' }}</span>
@@ -2418,6 +2436,7 @@ export class WorkspaceComponent implements OnInit, OnDestroy, AfterViewInit, Aft
   readonly terminalMode = signal<TerminalMode>(this.initialSettings.terminalMode);
   readonly diffMode = signal<DiffMode>(this.initialSettings.diffMode);
   readonly diffLayout = signal<DiffLayout>(this.initialSettings.diffLayout);
+  readonly diffSideShare = signal(this.initialSettings.diffSideShare);
   readonly shellCommand = signal(this.initialSettings.shellCommand);
   readonly shellCommandDraft = signal(this.initialSettings.shellCommand);
   readonly shellCommandEditing = signal(false);
@@ -2499,6 +2518,7 @@ export class WorkspaceComponent implements OnInit, OnDestroy, AfterViewInit, Aft
     origin: number;
     tabId: string;
   } | null = null;
+  private diffSideDrag: { pointerId: number; startX: number; width: number; origin: number } | null = null;
   private splitDrag: {
     pointerId: number;
     axis: 'x' | 'y';
@@ -3104,6 +3124,64 @@ export class WorkspaceComponent implements OnInit, OnDestroy, AfterViewInit, Aft
     this.diffLayout.set(layout);
     saveDiffLayout(layout);
     this.resetDiffScroll();
+  }
+
+  diffSideOldWidth(): string {
+    return `calc(${this.diffSideShare()} * (100% - 8px))`;
+  }
+
+  beginDiffSideSplit(event: PointerEvent): void {
+    if (event.button !== 0) {
+      return;
+    }
+    event.preventDefault();
+    const row = (event.currentTarget as HTMLElement | null)?.parentElement;
+    this.captureSplit(event);
+    this.diffSideDrag = {
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      width: row?.clientWidth ?? 0,
+      origin: this.diffSideShare(),
+    };
+  }
+
+  moveDiffSideSplit(event: PointerEvent): void {
+    const drag = this.diffSideDrag;
+    if (!drag || drag.pointerId !== event.pointerId || drag.width <= 0) {
+      return;
+    }
+    const ratio = drag.origin + (event.clientX - drag.startX) / drag.width;
+    this.diffSideShare.set(clampDiffSideShare(ratio, drag.width));
+  }
+
+  endDiffSideSplit(event: PointerEvent): void {
+    if (this.diffSideDrag?.pointerId !== event.pointerId) {
+      return;
+    }
+    this.diffSideDrag = null;
+    saveDiffSideShare(this.diffSideShare());
+  }
+
+  equalizeDiffSides(): void {
+    this.diffSideShare.set(0.5);
+    saveDiffSideShare(0.5);
+  }
+
+  canJumpToChange(direction: 'next' | 'previous'): boolean {
+    return this.changeTarget(direction) !== undefined;
+  }
+
+  jumpToChange(direction: 'next' | 'previous'): void {
+    const target = this.changeTarget(direction);
+    if (target === undefined) {
+      return;
+    }
+    const top = this.diffHeaderHeight() + target;
+    const element = this.diffScroller()?.nativeElement;
+    if (element) {
+      element.scrollTop = top;
+    }
+    this.diffScrollTop.set(top);
   }
 
   isSelectedCommit(commit: { sha?: string; subject: string }): boolean {
@@ -4145,6 +4223,41 @@ export class WorkspaceComponent implements OnInit, OnDestroy, AfterViewInit, Aft
     }
   }
 
+  private laidOutRows(): Array<FoldedRow | SideBySideRow> {
+    const rows = this.displayedRows();
+    return this.diffLayout() === 'side' ? sideBySideRows(rows) : rows;
+  }
+
+  private changeTarget(direction: 'next' | 'previous'): number | undefined {
+    const position = Math.max(0, this.diffScrollTop() - this.diffHeaderHeight());
+    const starts = this.changeStarts();
+    if (direction === 'next') {
+      return starts.find((start) => start > position + 0.5);
+    }
+    for (let index = starts.length - 1; index >= 0; index -= 1) {
+      const start = starts[index];
+      if (start !== undefined && start < position - 0.5) {
+        return start;
+      }
+    }
+    return undefined;
+  }
+
+  private changeStarts(): number[] {
+    let offset = 0;
+    let inChange = false;
+    const starts: number[] = [];
+    for (const row of this.laidOutRows()) {
+      const changed = rowIsChange(row);
+      if (changed && !inChange) {
+        starts.push(offset);
+      }
+      inChange = changed;
+      offset += row.kind === 'fold' ? this.diffFoldHeight : this.diffRowHeight;
+    }
+    return starts;
+  }
+
   private displayedRows(): FoldedRow[] {
     const full = this.fullFileView();
     if (full && !full.tooLarge) {
@@ -4158,8 +4271,7 @@ export class WorkspaceComponent implements OnInit, OnDestroy, AfterViewInit, Aft
 
   private buildDiffWindow(): { height: number; offset: number; rows: DiffViewRow[] } {
     let offset = 0;
-    const source: Array<FoldedRow | SideBySideLineRow> =
-      this.diffLayout() === 'side' ? sideBySideRows(this.displayedRows()) : this.displayedRows();
+    const source = this.laidOutRows();
     const rows = source.map((row, index) => {
       const height = row.kind === 'fold' ? this.diffFoldHeight : this.diffRowHeight;
       const placed: DiffViewRow = {
@@ -6637,6 +6749,29 @@ function isPromise(value: void | Promise<void>): value is Promise<void> {
     return false;
   }
   return typeof value.then === 'function';
+}
+
+function clampDiffSideShare(ratio: number, width: number): number {
+  const gutter = 8;
+  const usable = width - gutter;
+  if (usable <= 160) {
+    return Math.min(0.8, Math.max(0.2, ratio));
+  }
+  const min = 80 / usable;
+  return Math.min(1 - min, Math.max(min, ratio));
+}
+
+function rowIsChange(row: FoldedRow | SideBySideRow): boolean {
+  if (row.kind === 'fold') {
+    return false;
+  }
+  if ('old' in row) {
+    return (
+      (row.old.kind !== 'context' && row.old.kind !== 'empty') ||
+      (row.new.kind !== 'context' && row.new.kind !== 'empty')
+    );
+  }
+  return row.line.kind !== 'context';
 }
 
 function clampSplit(value: number, limit: number | undefined): number {
