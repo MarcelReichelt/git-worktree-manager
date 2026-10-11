@@ -692,6 +692,18 @@ ul { margin: 0; padding: 0; list-style: none; }
   white-space: pre;
 }
 
+[data-testid='diff'].is-side {
+  overflow-x: hidden;
+}
+
+.diff-body {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+
 [data-testid='diff-rename'],
 [data-testid='diff-binary'] {
   margin: 0;
@@ -777,7 +789,7 @@ ul { margin: 0; padding: 0; list-style: none; }
   flex: 1 1 0;
   align-items: stretch;
   min-width: 0;
-  overflow-x: auto;
+  overflow-x: hidden;
   overflow-y: hidden;
   white-space: pre;
 }
@@ -867,6 +879,7 @@ ul { margin: 0; padding: 0; list-style: none; }
 
 .diff-rows {
   position: relative;
+  width: 100%;
 }
 
 .diff-window {
@@ -874,6 +887,57 @@ ul { margin: 0; padding: 0; list-style: none; }
   top: 0;
   left: 0;
   min-width: 100%;
+}
+
+.diff-window.is-side {
+  right: 0;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+}
+
+.diff-side-scrolls {
+  display: flex;
+  flex: none;
+  width: 100%;
+  min-width: 0;
+  background: var(--paper);
+}
+
+.diff-side-scroll-old,
+.diff-side-scroll-new {
+  display: flex;
+  min-width: 0;
+}
+
+.diff-side-scroll-old {
+  flex: none;
+}
+
+.diff-side-scroll-new {
+  flex: 1 1 0;
+}
+
+.diff-side-scroll-number {
+  flex: 0 0 4rem;
+}
+
+.diff-side-scroll-gap {
+  flex: 0 0 8px;
+}
+
+[data-testid='diff-side-old-scroll'],
+[data-testid='diff-side-new-scroll'] {
+  flex: 1 1 0;
+  min-width: 0;
+  height: 12px;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+[data-testid='diff-side-old-scroll'] > div,
+[data-testid='diff-side-new-scroll'] > div {
+  height: 1px;
 }
 
 .commit-files {

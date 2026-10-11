@@ -10283,7 +10283,28 @@ describe('side by side diff', () => {
     const cell = row.querySelector('[data-testid="diff-side-new"]') as HTMLElement;
     const number = cell.querySelector('[data-testid="diff-new-number"]') as HTMLElement;
     expect(getComputedStyle(cell).whiteSpace).toBe('pre');
-    expect(getComputedStyle(cell).overflowX).toBe('auto');
+    expect(getComputedStyle(cell).overflowX).toBe('hidden');
+    expect(getComputedStyle(diff).overflowX).toBe('hidden');
+    expect(diff.querySelector('.diff-window')?.classList.contains('is-side')).toBe(true);
+    const scrolls = diff.parentElement?.querySelector('[data-testid="diff-side-scrolls"]') as HTMLElement;
+    expect(scrolls).not.toBeNull();
+    expect(row.contains(scrolls)).toBe(false);
+    expect(scrolls.querySelectorAll('[data-testid="diff-side-old-scroll"]').length).toBe(1);
+    const oldScroll = scrolls.querySelector('[data-testid="diff-side-old-scroll"]') as HTMLElement;
+    let sideScroll = 0;
+    Object.defineProperty(oldScroll, 'scrollLeft', {
+      configurable: true,
+      get: () => sideScroll,
+      set: (value: number) => {
+        sideScroll = value;
+      },
+    });
+    oldScroll.scrollLeft = 48;
+    oldScroll.dispatchEvent(new Event('scroll'));
+    fixture.detectChanges();
+    const shifted = row.querySelector('[data-testid="diff-side-old"] .diff-code') as HTMLElement;
+    expect(shifted.style.transform).toBe('translateX(-48px)');
+    expect((number as HTMLElement).style.transform).toBe('');
     expect(getComputedStyle(number).position).toBe('sticky');
     expect(getComputedStyle(row).height).toBe('20px');
     expect(fixture.nativeElement.querySelectorAll('[data-testid="diff"]').length).toBe(1);
@@ -10300,6 +10321,9 @@ describe('side by side diff', () => {
     expect(diff.textContent).not.toContain('new-00');
     const visible = sideRowContaining(diff, 'new-30');
     expect(visible.querySelector('[data-testid="diff-side-old"]')?.textContent).toContain('old-30');
+    expect(visible.querySelector('[data-testid="diff-side-old"] .diff-code')?.getAttribute('style')).toContain(
+      'translateX(-48px)',
+    );
     expect(visible.querySelector('[data-testid="diff-side-new"]')?.textContent).toContain('new-30');
     expect(diff.querySelector('[data-testid="diff-layout"]')).toBeNull();
 

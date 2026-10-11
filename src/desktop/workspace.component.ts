@@ -1420,7 +1420,8 @@ button, input { font: inherit; color: inherit; }
             @if (showDiffTooLarge()) {
               <p data-testid="diff-too-large">This file is too large to show</p>
             } @else if (showInlineDiff()) {
-              <div #diffScroller data-testid="diff" gmOverlayScroll (scroll)="onDiffScroll($event)">
+              <div class="diff-body">
+              <div #diffScroller data-testid="diff" class="diff-view" [class.is-side]="diffLayout() === 'side'" gmOverlayScroll (scroll)="onDiffScroll($event)">
                 @if (foldedDiff().previousPath; as previousPath) {
                   <p data-testid="diff-rename" [style.height.px]="diffRowHeight" [style.lineHeight.px]="diffRowHeight">Renamed from {{ previousPath }}</p>
                 }
@@ -1429,7 +1430,7 @@ button, input { font: inherit; color: inherit; }
                 }
                 @if (diffBodyHeight() > 0) {
                   <div class="diff-rows" [style.height.px]="diffBodyHeight()">
-                    <div class="diff-window" [style.transform]="diffWindowTransform()">
+                    <div class="diff-window" [class.is-side]="diffLayout() === 'side'" [style.transform]="diffWindowTransform()">
                       @for (row of visibleDiffRows(); track row.index) {
                         @if (row.kind === 'fold') {
                           <div data-testid="diff-fold" [style.height.px]="diffFoldHeight" [style.lineHeight.px]="diffRowHeight">
@@ -1452,7 +1453,7 @@ button, input { font: inherit; color: inherit; }
                               @if (side.old.kind !== 'empty') {
                                 <span data-testid="diff-old-number">{{ side.old.number ?? '' }}</span>
                               }
-                              <span class="diff-code">
+                              <span class="diff-code" [style.transform]="diffSideShift('old')">
                                 @for (span of side.old.spans; track $index) {
                                   <span [attr.data-changed]="span.changed ? 'true' : 'false'">{{ span.text }}</span>
                                 }
@@ -1473,7 +1474,7 @@ button, input { font: inherit; color: inherit; }
                               @if (side.new.kind !== 'empty') {
                                 <span data-testid="diff-new-number">{{ side.new.number ?? '' }}</span>
                               }
-                              <span class="diff-code">
+                              <span class="diff-code" [style.transform]="diffSideShift('new')">
                                 @for (span of side.new.spans; track $index) {
                                   <span [attr.data-changed]="span.changed ? 'true' : 'false'">{{ span.text }}</span>
                                 }
@@ -1500,6 +1501,24 @@ button, input { font: inherit; color: inherit; }
                     </div>
                   </div>
                 }
+              </div>
+              @if (diffLayout() === 'side') {
+                <div class="diff-side-scrolls" data-testid="diff-side-scrolls">
+                  <div class="diff-side-scroll-old" [style.width]="diffSideOldWidth()">
+                    <div class="diff-side-scroll-number"></div>
+                    <div data-testid="diff-side-old-scroll" (scroll)="scrollDiffSide('old', $event)">
+                      <div [style.width.ch]="sideCodeChars().old"></div>
+                    </div>
+                  </div>
+                  <div class="diff-side-scroll-gap"></div>
+                  <div class="diff-side-scroll-new">
+                    <div class="diff-side-scroll-number"></div>
+                    <div data-testid="diff-side-new-scroll" (scroll)="scrollDiffSide('new', $event)">
+                      <div [style.width.ch]="sideCodeChars().new"></div>
+                    </div>
+                  </div>
+                </div>
+              }
               </div>
             } @else {
               <p data-testid="empty-diff">No diff for this file</p>
@@ -2437,6 +2456,8 @@ export class WorkspaceComponent implements OnInit, OnDestroy, AfterViewInit, Aft
   readonly diffMode = signal<DiffMode>(this.initialSettings.diffMode);
   readonly diffLayout = signal<DiffLayout>(this.initialSettings.diffLayout);
   readonly diffSideShare = signal(this.initialSettings.diffSideShare);
+  private readonly diffOldScroll = signal(0);
+  private readonly diffNewScroll = signal(0);
   readonly shellCommand = signal(this.initialSettings.shellCommand);
   readonly shellCommandDraft = signal(this.initialSettings.shellCommand);
   readonly shellCommandEditing = signal(false);
@@ -3128,6 +3149,28 @@ export class WorkspaceComponent implements OnInit, OnDestroy, AfterViewInit, Aft
 
   diffSideOldWidth(): string {
     return `calc(${this.diffSideShare()} * (100% - 8px))`;
+  }
+
+  diffSideShift(side: 'old' | 'new'): string {
+    const offset = side === 'old' ? this.diffOldScroll() : this.diffNewScroll();
+    return offset === 0 ? '' : `translateX(${-offset}px)`;
+  }
+
+  scrollDiffSide(side: 'old' | 'new', event: Event): void {
+    const element = event.currentTarget;
+    if (!(element instanceof HTMLElement)) {
+      return;
+    }
+    const offset = element.scrollLeft;
+    if (side === 'old') {
+      if (offset !== this.diffOldScroll()) {
+        this.diffOldScroll.set(offset);
+      }
+      return;
+    }
+    if (offset !== this.diffNewScroll()) {
+      this.diffNewScroll.set(offset);
+    }
   }
 
   beginDiffSideSplit(event: PointerEvent): void {
@@ -4223,6 +4266,26 @@ export class WorkspaceComponent implements OnInit, OnDestroy, AfterViewInit, Aft
     }
   }
 
+  private readonly sideCodeChars = computed(() => {
+    let oldChars = 0;
+    let newChars = 0;
+    if (this.diffLayout() !== 'side') {
+      return { old: oldChars, new: newChars };
+    }
+    for (const row of this.laidOutRows()) {
+      if (row.kind !== 'line' || !('old' in row)) {
+        continue;
+      }
+      if (row.old.text.length > oldChars) {
+        oldChars = row.old.text.length;
+      }
+      if (row.new.text.length > newChars) {
+        newChars = row.new.text.length;
+      }
+    }
+    return { old: oldChars, new: newChars };
+  });
+
   private laidOutRows(): Array<FoldedRow | SideBySideRow> {
     const rows = this.displayedRows();
     return this.diffLayout() === 'side' ? sideBySideRows(rows) : rows;
@@ -4372,9 +4435,18 @@ export class WorkspaceComponent implements OnInit, OnDestroy, AfterViewInit, Aft
 
   private resetDiffScroll(): void {
     this.diffScrollTop.set(0);
+    this.diffOldScroll.set(0);
+    this.diffNewScroll.set(0);
     const element = this.diffScroller()?.nativeElement;
-    if (element) {
-      element.scrollTop = 0;
+    if (!element) {
+      return;
+    }
+    element.scrollTop = 0;
+    for (const testId of ['diff-side-old-scroll', 'diff-side-new-scroll']) {
+      const bar = element.parentElement?.querySelector(`[data-testid="${testId}"]`);
+      if (bar instanceof HTMLElement) {
+        bar.scrollLeft = 0;
+      }
     }
   }
 
