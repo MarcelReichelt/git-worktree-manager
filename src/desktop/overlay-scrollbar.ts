@@ -53,12 +53,13 @@ function ensureOverlayScrollbarStyles(): void {
 .overlay-scrollbar-anchor {
   position: sticky;
   top: 0;
+  left: calc(100% - 8px);
   display: block;
+  width: 8px;
   height: 0;
   min-height: 0;
   flex: 0 0 0px;
   align-self: stretch;
-  width: auto;
   margin: 0;
   padding: 0;
   border: 0;

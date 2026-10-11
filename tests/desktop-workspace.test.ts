@@ -6052,6 +6052,9 @@ describe('desktop workspace', () => {
     expect(thumbStyle.position).toBe('absolute');
     expect(Number.parseFloat(thumbStyle.width)).toBeLessThanOrEqual(8);
     expect(Number.parseFloat(thumbStyle.width)).toBeGreaterThan(0);
+    const anchor = thumb.parentElement as HTMLElement;
+    expect(getComputedStyle(anchor).position).toBe('sticky');
+    expect(document.getElementById('gm-overlay-scrollbar')?.textContent).toContain('left: calc(100% - 8px)');
     expect(thumb.style.height).toBe('25px');
     expect(thumb.style.transform).toBe('translateY(0px)');
     const fadeInMs = opacityTransitionMs(thumbStyle);

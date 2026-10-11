@@ -4424,6 +4424,7 @@ export class WorkspaceComponent implements OnInit, OnDestroy, AfterViewInit, Aft
     const element = this.diffScroller()?.nativeElement;
     if (element) {
       element.scrollTop = 0;
+    element.scrollLeft = 0;
     }
     const bar = this.sideScrollBar();
     if (bar instanceof HTMLElement && bar.scrollLeft !== 0) {
