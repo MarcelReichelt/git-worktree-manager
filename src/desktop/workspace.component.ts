@@ -1421,7 +1421,7 @@ button, input { font: inherit; color: inherit; }
               <p data-testid="diff-too-large">This file is too large to show</p>
             } @else if (showInlineDiff()) {
               <div class="diff-body">
-              <div #diffScroller data-testid="diff" class="diff-view" [class.is-side]="diffLayout() === 'side'" gmOverlayScroll (scroll)="onDiffScroll($event)" (wheel)="onDiffSideWheel($event)">
+              <div #diffScroller data-testid="diff" class="diff-view" [class.is-side]="diffLayout() === 'side'" gmOverlayScroll (scroll)="onDiffScroll($event)">
                 @if (foldedDiff().previousPath; as previousPath) {
                   <p data-testid="diff-rename" [style.height.px]="diffRowHeight" [style.lineHeight.px]="diffRowHeight">Renamed from {{ previousPath }}</p>
                 }
@@ -1503,8 +1503,10 @@ button, input { font: inherit; color: inherit; }
                 }
               </div>
               @if (diffLayout() === 'side') {
-                <div data-testid="diff-side-scroll" (scroll)="scrollDiffSides($event)">
-                  <div [style.width.px]="sideScrollSpan()"></div>
+                <div class="diff-side-scroll-row" [style.--diff-side-share]="diffSideShare()">
+                  <div data-testid="diff-side-scroll" (scroll)="scrollDiffSides($event)">
+                    <div [style.width.ch]="maxSideChars()"></div>
+                  </div>
                 </div>
               }
               </div>
@@ -2527,6 +2529,7 @@ export class WorkspaceComponent implements OnInit, OnDestroy, AfterViewInit, Aft
     tabId: string;
   } | null = null;
   private diffSideDrag: { pointerId: number; startX: number; width: number; origin: number } | null = null;
+  private sideWheelTarget: HTMLElement | null = null;
   private splitDrag: {
     pointerId: number;
     axis: 'x' | 'y';
@@ -2716,6 +2719,7 @@ export class WorkspaceComponent implements OnInit, OnDestroy, AfterViewInit, Aft
   ngAfterViewChecked(): void {
     this.captureMaximizedBody();
     this.scheduleDiffViewport();
+    this.bindSideWheel();
     this.revealPendingTab();
     this.fitAnchoredMenu('[data-testid="terminal-menu"]', this.terminalMenu());
     this.fitAnchoredMenu('[data-testid="preset-menu"]', this.presetMenu());
@@ -2724,6 +2728,8 @@ export class WorkspaceComponent implements OnInit, OnDestroy, AfterViewInit, Aft
   }
 
   ngOnDestroy(): void {
+    this.sideWheelTarget?.removeEventListener('wheel', this.onSideWheel);
+    this.sideWheelTarget = null;
     this.hideMoveSubmenu();
     this.clearGitWatch();
     this.remoteFollow += 1;
@@ -3155,8 +3161,13 @@ export class WorkspaceComponent implements OnInit, OnDestroy, AfterViewInit, Aft
     if (delta === 0) {
       return;
     }
+    const bar = this.sideScrollBar();
+    if (!(bar instanceof HTMLElement)) {
+      return;
+    }
     event.preventDefault();
-    this.setSideScroll(this.diffSideScroll() + delta);
+    bar.scrollLeft += delta;
+    this.rememberSideScroll(bar.scrollLeft);
   }
 
   scrollDiffSides(event: Event): void {
@@ -3164,7 +3175,7 @@ export class WorkspaceComponent implements OnInit, OnDestroy, AfterViewInit, Aft
     if (!(element instanceof HTMLElement)) {
       return;
     }
-    this.setSideScroll(element.scrollLeft);
+    this.rememberSideScroll(element.scrollLeft);
   }
 
   beginDiffSideSplit(event: PointerEvent): void {
@@ -4260,14 +4271,6 @@ export class WorkspaceComponent implements OnInit, OnDestroy, AfterViewInit, Aft
     }
   }
 
-  sideScrollSpan(): number {
-    const bar = this.diffScroller()?.nativeElement?.parentElement?.querySelector(
-      '[data-testid="diff-side-scroll"]',
-    );
-    const view = bar instanceof HTMLElement ? bar.clientWidth : 0;
-    return view + this.sideScrollLimit();
-  }
-
   private laidOutRows(): Array<FoldedRow | SideBySideRow> {
     const rows = this.displayedRows();
     return this.diffLayout() === 'side' ? sideBySideRows(rows) : rows;
@@ -4417,38 +4420,55 @@ export class WorkspaceComponent implements OnInit, OnDestroy, AfterViewInit, Aft
 
   private resetDiffScroll(): void {
     this.diffScrollTop.set(0);
-    this.setSideScroll(0);
+    this.rememberSideScroll(0);
     const element = this.diffScroller()?.nativeElement;
     if (element) {
       element.scrollTop = 0;
     }
+    const bar = this.sideScrollBar();
+    if (bar instanceof HTMLElement && bar.scrollLeft !== 0) {
+      bar.scrollLeft = 0;
+    }
   }
 
-  private setSideScroll(offset: number): void {
-    const next = Math.min(this.sideScrollLimit(), Math.max(0, offset));
-    if (next !== this.diffSideScroll()) {
-      this.diffSideScroll.set(next);
+  private rememberSideScroll(offset: number): void {
+    if (offset !== this.diffSideScroll()) {
+      this.diffSideScroll.set(offset);
     }
+  }
+
+  private sideScrollBar(): HTMLElement | null {
     const bar = this.diffScroller()?.nativeElement?.parentElement?.querySelector('[data-testid="diff-side-scroll"]');
-    if (bar instanceof HTMLElement && bar.scrollLeft !== next) {
-      bar.scrollLeft = next;
-    }
+    return bar instanceof HTMLElement ? bar : null;
   }
 
-  private sideScrollLimit(): number {
-    const root = this.diffScroller()?.nativeElement;
-    if (!root) {
+  private bindSideWheel(): void {
+    const element = this.diffLayout() === 'side' ? (this.diffScroller()?.nativeElement ?? null) : null;
+    if (element === this.sideWheelTarget) {
+      return;
+    }
+    this.sideWheelTarget?.removeEventListener('wheel', this.onSideWheel);
+    this.sideWheelTarget = element;
+    element?.addEventListener('wheel', this.onSideWheel, { passive: false });
+  }
+
+  private readonly onSideWheel = (event: WheelEvent): void => {
+    this.onDiffSideWheel(event);
+  };
+
+  readonly maxSideChars = computed(() => {
+    if (this.diffLayout() !== 'side') {
       return 0;
     }
-    let limit = 0;
-    for (const testId of ['diff-side-old', 'diff-side-new']) {
-      const cell = root.querySelector(`[data-testid="${testId}"]`);
-      if (cell instanceof HTMLElement) {
-        limit = Math.max(limit, cell.scrollWidth - cell.clientWidth);
+    let chars = 0;
+    for (const row of this.laidOutRows()) {
+      if (row.kind !== 'line' || !('old' in row)) {
+        continue;
       }
+      chars = Math.max(chars, row.old.text.length, row.new.text.length);
     }
-    return Math.max(0, limit);
-  }
+    return chars;
+  });
 
   moveSplit(event: PointerEvent): void {
     const drag = this.splitDrag;

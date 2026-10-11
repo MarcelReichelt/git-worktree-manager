@@ -10290,11 +10290,14 @@ describe('side by side diff', () => {
     expect(scrolls).not.toBeNull();
     expect(row.contains(scrolls)).toBe(false);
     expect(diff.parentElement?.querySelectorAll('[data-testid="diff-side-scroll"]').length).toBe(1);
-    for (const side of ['diff-side-old', 'diff-side-new']) {
-      const sideCell = row.querySelector(`[data-testid="${side}"]`) as HTMLElement;
-      Object.defineProperty(sideCell, 'scrollWidth', { configurable: true, value: 200 });
-      Object.defineProperty(sideCell, 'clientWidth', { configurable: true, value: 80 });
-    }
+    let sideScroll = 0;
+    Object.defineProperty(scrolls, 'scrollLeft', {
+      configurable: true,
+      get: () => sideScroll,
+      set: (value: number) => {
+        sideScroll = Math.max(0, Math.min(120, value));
+      },
+    });
     diff.dispatchEvent(new WheelEvent('wheel', { deltaX: 30, deltaY: 4 }));
     fixture.detectChanges();
     const oldCode = row.querySelector('[data-testid="diff-side-old"] .diff-code') as HTMLElement;
@@ -10305,14 +10308,6 @@ describe('side by side diff', () => {
     diff.dispatchEvent(new WheelEvent('wheel', { deltaX: 2, deltaY: 40 }));
     fixture.detectChanges();
     expect(oldCode.style.transform).toBe('translateX(-30px)');
-    let sideScroll = 30;
-    Object.defineProperty(scrolls, 'scrollLeft', {
-      configurable: true,
-      get: () => sideScroll,
-      set: (value: number) => {
-        sideScroll = value;
-      },
-    });
     sideScroll = 48;
     scrolls.dispatchEvent(new Event('scroll'));
     fixture.detectChanges();
