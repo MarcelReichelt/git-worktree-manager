@@ -1,7 +1,8 @@
 import { execFile, execFileSync } from 'node:child_process';
-import { lstatSync, readFileSync } from 'node:fs';
-import { dirname, resolve, sep } from 'node:path';
+import { lstatSync, readFileSync, statSync } from 'node:fs';
+import { dirname, join, resolve, sep } from 'node:path';
 import { readPinnedWorktrees } from './app-settings.js';
+import { fullFileByteLimit } from './diff-lines.js';
 
 export type BranchStatus = 'local-only' | 'local-and-remote' | 'remote-only' | 'remote-deleted';
 
@@ -1030,25 +1031,127 @@ function parseCommitLog(output: string): BranchCommit[] {
   });
 }
 
-export function readWorkingTreeDiff(repoPath: string, branch: string, filePath: string): string {
+export function readWorkingTreeDiff(
+  repoPath: string,
+  branch: string,
+  filePath: string,
+  previousPath?: string | null,
+): string {
   const checkout = worktreePath(repoPath, branch);
   if (!checkout) {
     throw new Error(`No worktree for branch: ${branch}`);
   }
-  const tracked = gitText(checkout, ['diff', '-M', 'HEAD', '--', filePath], true);
+  const tracked = gitText(checkout, ['diff', '-M', '-U3', 'HEAD', '--', ...diffPaths(filePath, previousPath)], true);
   if (tracked !== '') {
     return tracked;
   }
   if (gitOptional(checkout, ['ls-files', '--error-unmatch', '--', filePath]) !== undefined) {
     return '';
   }
-  return gitText(checkout, ['diff', '--no-index', '--', '/dev/null', filePath], true);
+  return gitText(checkout, ['diff', '--no-index', '-U3', '--', '/dev/null', filePath], true);
 }
 
 export function readCommitFiles(repoPath: string, sha: string): ChangedFile[] {
   return parseNumstat(gitText(repoPath, ['show', '-m', '--first-parent', '-M', '--numstat', '-z', '--format=', sha]));
 }
 
-export function readCommitFileDiff(repoPath: string, sha: string, filePath: string): string {
-  return gitText(repoPath, ['show', '-m', '--first-parent', '-M', '--format=', sha, '--', filePath], true);
+export function readCommitFileDiff(
+  repoPath: string,
+  sha: string,
+  filePath: string,
+  previousPath?: string | null,
+): string {
+  return gitText(
+    repoPath,
+    ['show', '-m', '--first-parent', '-M', '-U3', '--format=', sha, '--', ...diffPaths(filePath, previousPath)],
+    true,
+  );
+}
+
+function diffPaths(filePath: string, previousPath?: string | null): string[] {
+  if (previousPath && previousPath !== filePath) {
+    return [previousPath, filePath];
+  }
+  return [filePath];
+}
+
+export interface DiffFileSides {
+  oldText: string;
+  newText: string;
+  tooLarge: boolean;
+}
+
+export function readWorkingTreeFileSides(
+  repoPath: string,
+  branch: string,
+  filePath: string,
+  previousPath: string | null,
+  binary = false,
+): DiffFileSides {
+  const checkout = worktreePath(repoPath, branch);
+  if (!checkout) {
+    return { oldText: '', newText: '', tooLarge: false };
+  }
+  const oldSpec = `HEAD:${sidePath(filePath, previousPath)}`;
+  return readFileSides(readGitBlob(checkout, oldSpec), readCheckoutFile(checkout, filePath), binary);
+}
+
+export function readCommitFileSides(
+  repoPath: string,
+  sha: string,
+  filePath: string,
+  previousPath: string | null,
+  binary = false,
+): DiffFileSides {
+  const oldSpec = `${sha}^:${sidePath(filePath, previousPath)}`;
+  return readFileSides(readGitBlob(repoPath, oldSpec), readGitBlob(repoPath, `${sha}:${filePath}`), binary);
+}
+
+function sidePath(filePath: string, previousPath: string | null): string {
+  if (previousPath !== null && previousPath !== '') {
+    return previousPath;
+  }
+  return filePath;
+}
+
+function readFileSides(
+  oldSide: { text: string; tooLarge: boolean },
+  newSide: { text: string; tooLarge: boolean },
+  binary: boolean,
+): DiffFileSides {
+  if (binary) {
+    return { oldText: '', newText: '', tooLarge: oldSide.tooLarge || newSide.tooLarge };
+  }
+  return {
+    oldText: oldSide.text,
+    newText: newSide.text,
+    tooLarge: oldSide.tooLarge || newSide.tooLarge,
+  };
+}
+
+function readGitBlob(cwd: string, spec: string): { text: string; tooLarge: boolean } {
+  const sizeText = gitOptional(cwd, ['cat-file', '-s', spec]);
+  if (sizeText === undefined) {
+    return { text: '', tooLarge: false };
+  }
+  const size = Number(sizeText);
+  return {
+    text: execFileSync('git', ['cat-file', '-p', spec], {
+      cwd,
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'pipe'],
+      maxBuffer: size,
+    }),
+    tooLarge: size > fullFileByteLimit,
+  };
+}
+
+function readCheckoutFile(checkout: string, filePath: string): { text: string; tooLarge: boolean } {
+  const full = join(checkout, filePath);
+  try {
+    const size = statSync(full).size;
+    return { text: readFileSync(full, 'utf8'), tooLarge: size > fullFileByteLimit };
+  } catch {
+    return { text: '', tooLarge: false };
+  }
 }

@@ -462,6 +462,9 @@ describe('terminal font and colors', () => {
       terminalRowHeight: 240,
       changesFileWidth: 240,
       commitFileWidth: 240,
+      diffMode: 'folded',
+      diffLayout: 'inline',
+      diffSideShare: 0.5,
     });
   });
 });
