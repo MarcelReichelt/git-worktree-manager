@@ -89,6 +89,10 @@ _Avoid_: master, main, primary branch
 A checkout of a single branch, in either the sibling layout or the workspaces layout.
 _Avoid_: workspace
 
+**Hook**:
+One step a repository runs before or after a worktree is created or removed. A shell command is one hook. A plugin method for that moment is one hook.
+_Avoid_: script
+
 **Terminal**:
 A running shell for a worktree. It lives in a terminal tab.
 _Avoid_: multiplexer, tab
