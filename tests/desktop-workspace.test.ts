@@ -7249,6 +7249,108 @@ describe('desktop workspace', () => {
     }
   });
 
+  it('reports remove modules that fail to load and omits a plugin with no remove method', async () => {
+    const repoPath = createEmptyRepository(roots);
+    git(repoPath, ['branch', 'feature']);
+    const checkout = join(repoPath, '.workspaces', 'feature');
+    git(repoPath, ['worktree', 'add', checkout, 'feature']);
+    mkdirSync(join(repoPath, 'plugins'), { recursive: true });
+    writeFileSync(
+      join(repoPath, 'plugins', 'create-only.ts'),
+      ['export default {', "  name: 'Create only',", '  preWorktreeCreate() {},', '};', ''].join('\n'),
+    );
+    writeFileSync(
+      join(repoPath, 'plugins', 'kept.ts'),
+      ['export default {', "  name: 'Kept',", '  preWorktreeRemove() {},', '};', ''].join('\n'),
+    );
+    mkdirSync(join(repoPath, '.git-worktree-manager'), { recursive: true });
+    writeFileSync(
+      join(repoPath, '.git-worktree-manager', 'config.toml'),
+      [
+        '[hooks]',
+        'modules = ["plugins/missing-a.ts", "plugins/create-only.ts", "plugins/kept.ts", "plugins/missing-b.ts"]',
+        '',
+        '[hooks.pre_worktree_remove]',
+        'commands = ["echo pre"]',
+        '',
+      ].join('\n'),
+    );
+    process.env.GIT_WORKTREE_MANAGER_REGISTRY_PATH = join(repoPath, '..', 'registry.db');
+    addRepository(repoPath, 'Harbor');
+    const fixture = await renderRepository(repoPath);
+
+    const row = fixture.nativeElement.querySelector('[data-branch="feature"]');
+    row.querySelector('[data-testid="remove-worktree"]').click();
+    fixture.detectChanges();
+
+    const dialog = fixture.nativeElement.querySelector('[data-testid="remove-worktree-dialog"]');
+    expect([...dialog.querySelectorAll('[data-testid="remove-hook"]')].map((hook) => hook.textContent.trim())).toEqual([
+      'echo pre',
+      'Kept',
+    ]);
+    expect(
+      [...dialog.querySelectorAll('[data-testid="remove-hook-load-error"]')].map((line) => line.textContent.trim()),
+    ).toEqual([
+      'Could not load hook module: plugins/missing-a.ts',
+      'Could not load hook module: plugins/missing-b.ts',
+    ]);
+    expect(dialog.textContent).not.toContain('Create only');
+    expect(dialog.querySelector('[data-testid="workspace-error"]')).toBeNull();
+  });
+
+  it('fails remove when a hook module cannot load, even if every visible hook is unchecked', async () => {
+    const repoPath = createEmptyRepository(roots);
+    git(repoPath, ['branch', 'feature']);
+    const checkout = join(repoPath, '.workspaces', 'feature');
+    git(repoPath, ['worktree', 'add', checkout, 'feature']);
+    mkdirSync(join(repoPath, 'hooks'), { recursive: true });
+    const commandLog = join(repoPath, 'command-ran.txt');
+    writeFileSync(
+      join(repoPath, 'hooks', 'mark.mjs'),
+      `import { writeFileSync } from 'node:fs';\nwriteFileSync(${JSON.stringify(commandLog)}, 'ran\\n');\n`,
+    );
+    mkdirSync(join(repoPath, '.git-worktree-manager'), { recursive: true });
+    const configPath = join(repoPath, '.git-worktree-manager', 'config.toml');
+    const config = [
+      '[hooks]',
+      'modules = ["plugins/missing.ts"]',
+      '',
+      '[hooks.pre_worktree_remove]',
+      'commands = ["node hooks/mark.mjs"]',
+      '',
+    ].join('\n');
+    writeFileSync(configPath, config);
+    process.env.GIT_WORKTREE_MANAGER_REGISTRY_PATH = join(repoPath, '..', 'registry.db');
+    addRepository(repoPath, 'Harbor');
+    const fixture = await renderRepository(repoPath);
+
+    const row = fixture.nativeElement.querySelector('[data-branch="feature"]');
+    row.querySelector('[data-testid="remove-worktree"]').click();
+    fixture.detectChanges();
+    const dialog = fixture.nativeElement.querySelector('[data-testid="remove-worktree-dialog"]');
+    expect(dialog.querySelector('[data-testid="remove-hook-load-error"]').textContent.trim()).toBe(
+      'Could not load hook module: plugins/missing.ts',
+    );
+    (dialog.querySelector('[data-testid="remove-hook"] input') as HTMLInputElement).click();
+    fixture.detectChanges();
+    dialog.querySelector('[data-testid="confirm-remove-worktree"]').click();
+    await untilVisible(fixture, (root) => {
+      const open = root.querySelector('[data-testid="remove-worktree-dialog"]');
+      return (
+        open?.querySelector('[data-testid="remove-hook-load-error"]') == null &&
+        (open?.querySelector('[data-testid="workspace-error"]')?.textContent ?? '') !== ''
+      );
+    });
+
+    expect(dialog.querySelector('[data-testid="remove-hook-load-error"]')).toBeNull();
+    expect(dialog.querySelector('[data-testid="workspace-error"]').textContent.trim()).toBe(
+      'Could not load hook module: plugins/missing.ts',
+    );
+    expect(existsSync(commandLog)).toBe(false);
+    expect(git(repoPath, ['worktree', 'list'])).toContain(checkout);
+    expect(readFileSync(configPath, 'utf8')).toBe(config);
+  });
+
   it('reads the registry on the centered card when the live query flag is set', async () => {
     const root = mkdtempSync(join(tmpdir(), 'git-worktree-manager-desktop-'));
     roots.push(root);

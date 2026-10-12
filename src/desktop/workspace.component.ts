@@ -664,7 +664,8 @@ button, input { font: inherit; color: inherit; }
 }
 
 [data-testid='loading-hooks'],
-[data-testid='create-hook-load-error'] {
+[data-testid='create-hook-load-error'],
+[data-testid='remove-hook-load-error'] {
   margin: 0;
   color: var(--grid);
   font-family: "JetBrains Mono", ui-monospace, monospace;
@@ -672,7 +673,8 @@ button, input { font: inherit; color: inherit; }
   line-height: 1.4;
 }
 
-[data-testid='create-hook-load-error'] {
+[data-testid='create-hook-load-error'],
+[data-testid='remove-hook-load-error'] {
   color: var(--coral);
 }
 
@@ -2081,6 +2083,9 @@ button, input { font: inherit; color: inherit; }
           @if (workspaceError(); as message) {
             <p data-testid="workspace-error">{{ message }}</p>
           }
+          @for (line of removeHookLoadErrors(); track $index) {
+            <p data-testid="remove-hook-load-error">{{ line }}</p>
+          }
           <div class="dialog-actions">
             <button type="button" data-testid="confirm-remove-worktree" [disabled]="branchActivity()?.label === 'Removing worktree' || removeHooksLoading()" (click)="confirmRemoveWorktree(false)">Keep branch</button>
             <button type="button" data-testid="confirm-delete-branch" [class.is-danger]="removeForceDelete()" [disabled]="branchActivity()?.label === 'Removing worktree' || removeHooksLoading()" (click)="confirmRemoveWorktree(true)">{{ removeForceDelete() ? 'Force delete branch' : 'Delete local branch' }}</button>
@@ -2614,6 +2619,7 @@ export class WorkspaceComponent implements OnInit, OnDestroy, AfterViewInit, Aft
   readonly removeHookRows = signal<CreateHookRow[]>([]);
   readonly removeHookChecked = signal<ReadonlySet<string>>(new Set());
   readonly removeHooksLoading = signal(false);
+  readonly removeHookLoadErrors = signal<string[]>([]);
   readonly preRemoveHooks = computed(() => this.removeHookRows().filter((row) => row.phase === 'pre'));
   readonly postRemoveHooks = computed(() => this.removeHookRows().filter((row) => row.phase === 'post'));
   readonly removeForceDelete = signal(false);
@@ -5197,6 +5203,7 @@ export class WorkspaceComponent implements OnInit, OnDestroy, AfterViewInit, Aft
   private replaceRemoveHooks(listing: CreateHookListing): void {
     this.removeHookRows.set(listing.rows);
     this.removeHookChecked.set(new Set(listing.rows.map((row) => row.id)));
+    this.removeHookLoadErrors.set(listing.loadErrors);
   }
 
   cancelRemove(): void {
@@ -5249,6 +5256,7 @@ export class WorkspaceComponent implements OnInit, OnDestroy, AfterViewInit, Aft
           this.zone.run(() => {
             const message = errorText(error);
             this.branchActivity.set(null);
+            this.removeHookLoadErrors.set([]);
             this.workspaceError.set(message);
             if (deleteBranch && message.toLowerCase().includes('use --force to delete it')) {
               this.removeForceDelete.set(true);

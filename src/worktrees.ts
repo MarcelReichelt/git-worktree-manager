@@ -613,7 +613,7 @@ export async function removeWorktree(
     repositoryPath: repoPath,
     deleteBranch: options.deleteBranch,
   };
-  const plugins = await loadPlugins(repoPath, config.hooks?.modules);
+  const plugins = await loadPlugins(repoPath, config.hooks?.modules, { createLoadError: true });
   const skip = options.skip;
   runHookCommands(
     repoPath,
