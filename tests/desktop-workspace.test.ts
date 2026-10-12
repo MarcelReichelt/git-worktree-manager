@@ -3083,6 +3083,41 @@ describe('desktop workspace', () => {
     expect(dialog.textContent).not.toContain('A new name creates a local branch');
   });
 
+  it('keeps the layout line and info icon when the repository has no create hooks', async () => {
+    const repoPath = createEmptyRepository(roots);
+    mkdirSync(join(repoPath, '.git-worktree-manager'), { recursive: true });
+    writeFileSync(
+      join(repoPath, '.git-worktree-manager', 'config.toml'),
+      [
+        '[hooks.pre_worktree_remove]',
+        'commands = ["echo remove"]',
+        '',
+        '[hooks.post_worktree_remove]',
+        'commands = ["echo after-remove"]',
+        '',
+      ].join('\n'),
+    );
+    process.env.GIT_WORKTREE_MANAGER_REGISTRY_PATH = join(repoPath, '..', 'registry.db');
+    addRepository(repoPath, 'Harbor');
+    const fixture = await renderRepository(repoPath);
+
+    fixture.nativeElement.querySelector('[data-testid="create-worktree"]').click();
+    fixture.detectChanges();
+
+    const dialog = fixture.nativeElement.querySelector('[data-testid="create-worktree-dialog"]');
+    expect(dialog.querySelector('[data-testid="create-layout"]').textContent.trim()).toBe(
+      'Workspaces, the app default',
+    );
+    expect(dialog.querySelector('[data-testid="create-worktree-info"]').getAttribute('title')).toBe(
+      'A new name creates a local branch from the primary checkout, with no upstream. A remote-only branch is fetched first. Pre-create hooks run before the worktree is added. Post-create hooks run after checkout.',
+    );
+    expect(dialog.querySelector('[data-testid="create-hook"]')).toBeNull();
+    expect(dialog.querySelector('[data-testid="create-hook-phase"]')).toBeNull();
+    expect(dialog.querySelector('[data-testid="loading-hooks"]')).toBeNull();
+    expect(dialog.querySelector('[data-testid="create-hook-load-error"]')).toBeNull();
+    expect(dialog.textContent).not.toMatch(/Pre-create|Post-create|Select all|Loading hooks|No hooks/i);
+  });
+
   it('omits branches deleted on the remote from create worktree and still offers a local branch', async () => {
     const repoPath = createRepositoryWithDeletedRemoteBranches(roots);
     const fixture = await renderRepository(repoPath);
