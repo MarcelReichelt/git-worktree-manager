@@ -3247,6 +3247,76 @@ describe('desktop workspace', () => {
     ]);
   });
 
+  it('labels duplicate commands separately and falls back to the module path', async () => {
+    const repoPath = createEmptyRepository(roots);
+    mkdirSync(join(repoPath, 'plugins'), { recursive: true });
+    writeFileSync(
+      join(repoPath, 'plugins', 'missing.ts'),
+      ['export default {', '  preWorktreeCreate() {},', '};', ''].join('\n'),
+    );
+    writeFileSync(
+      join(repoPath, 'plugins', 'blank.ts'),
+      ['export default {', "  name: '',", '  postWorktreeCreate() {},', '};', ''].join('\n'),
+    );
+    writeFileSync(
+      join(repoPath, 'plugins', 'spaces.ts'),
+      ['export default {', "  name: '   ',", '  preWorktreeCreate() {},', '};', ''].join('\n'),
+    );
+    writeFileSync(
+      join(repoPath, 'plugins', 'left.ts'),
+      ['export default {', "  name: 'Shared',", '  preWorktreeCreate() {},', '};', ''].join('\n'),
+    );
+    writeFileSync(
+      join(repoPath, 'plugins', 'right.ts'),
+      ['export default {', "  name: 'Shared',", '  preWorktreeCreate() {},', '};', ''].join('\n'),
+    );
+    writeFileSync(
+      join(repoPath, 'plugins', 'solo.ts'),
+      [
+        'export default {',
+        "  name: 'Solo',",
+        '  preWorktreeCreate() {},',
+        '  postWorktreeCreate() {},',
+        '};',
+        '',
+      ].join('\n'),
+    );
+    mkdirSync(join(repoPath, '.git-worktree-manager'), { recursive: true });
+    writeFileSync(
+      join(repoPath, '.git-worktree-manager', 'config.toml'),
+      [
+        '[hooks]',
+        'modules = ["plugins/missing.ts", "plugins/blank.ts", "plugins/spaces.ts", "plugins/left.ts", "plugins/right.ts", "plugins/solo.ts"]',
+        '',
+        '[hooks.pre_worktree_create]',
+        'commands = ["node hooks/mark.mjs", "node hooks/mark.mjs"]',
+        '',
+      ].join('\n'),
+    );
+    process.env.GIT_WORKTREE_MANAGER_REGISTRY_PATH = join(repoPath, '..', 'registry.db');
+    addRepository(repoPath, 'Harbor');
+    const fixture = await renderRepository(repoPath);
+
+    fixture.nativeElement.querySelector('[data-testid="create-worktree"]').click();
+    fixture.detectChanges();
+
+    const dialog = fixture.nativeElement.querySelector('[data-testid="create-worktree-dialog"]');
+    expect(
+      [...dialog.querySelectorAll('[data-testid="create-hook-phase"]')].map((phase) => phase.textContent.trim()),
+    ).toEqual(['Pre-create', 'Post-create']);
+    expect([...dialog.querySelectorAll('[data-testid="create-hook"]')].map((hook) => hook.textContent.trim())).toEqual([
+      'node hooks/mark.mjs',
+      'node hooks/mark.mjs',
+      'plugins/missing.ts',
+      'plugins/spaces.ts',
+      'plugins/left.ts',
+      'plugins/right.ts',
+      'Solo',
+      'plugins/blank.ts',
+      'Solo',
+    ]);
+  });
+
   it('omits branches deleted on the remote from create worktree and still offers a local branch', async () => {
     const repoPath = createRepositoryWithDeletedRemoteBranches(roots);
     const fixture = await renderRepository(repoPath);

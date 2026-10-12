@@ -121,13 +121,25 @@ function createPluginRows(
   loaded: ListedPlugin[],
   method: 'preWorktreeCreate' | 'postWorktreeCreate',
 ): CreateHookRow[] {
-  return loaded
-    .filter((entry) => typeof entry.plugin[method] === 'function')
-    .map((entry) => ({
-      id: `${kind}:${entry.moduleIndex}`,
-      phase,
-      label: entry.plugin.name,
-    }));
+  const peers = loaded.filter((entry) => typeof entry.plugin[method] === 'function');
+  return peers.map((entry) => ({
+    id: `${kind}:${entry.moduleIndex}`,
+    phase,
+    label: createPluginLabel(entry, peers),
+  }));
+}
+
+function createPluginLabel(entry: ListedPlugin, peers: ListedPlugin[]): string {
+  const name = pluginName(entry.plugin);
+  if (name === '') {
+    return entry.modulePath;
+  }
+  const sameName = peers.filter((peer) => pluginName(peer.plugin) === name);
+  return sameName.length > 1 ? entry.modulePath : name;
+}
+
+function pluginName(plugin: WorktreePlugin): string {
+  return typeof plugin.name === 'string' ? plugin.name.trim() : '';
 }
 
 function layoutForCreate(repoPath: string): LayoutMode {
