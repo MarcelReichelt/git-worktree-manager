@@ -55,7 +55,7 @@ import {
   type TerminalMode,
 } from '../app-settings.js';
 import { pushBranch } from '../push.js';
-import { createWorktree, findCheckout, removeWorktree } from '../worktrees.js';
+import { createWorktree, findCheckout, listCreateHooks, removeWorktree, type CreateHookRow } from '../worktrees.js';
 import {
   contentSwatches,
   sidebarSwatches,
@@ -636,6 +636,30 @@ button, input { font: inherit; color: inherit; }
   font-family: "JetBrains Mono", ui-monospace, monospace;
   font-size: 12px;
   line-height: 1.4;
+}
+
+[data-testid='create-worktree-dialog'] [data-testid='create-hook'] {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  color: var(--grid);
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: 12px;
+  font-weight: 400;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+[data-testid='create-hook-phase'] {
+  margin: 8px 0 0;
+  color: var(--forest);
+  font-family: "Space Grotesk", sans-serif;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0;
+  text-transform: none;
 }
 
 [data-testid='create-branch-options'] {
@@ -1911,6 +1935,28 @@ button, input { font: inherit; color: inherit; }
             </div>
           }
           <p data-testid="create-layout">{{ createLayoutLine() }}</p>
+          @if (preCreateHooks().length > 0 || postCreateHooks().length > 0) {
+            <div data-testid="create-hooks">
+              @if (preCreateHooks().length > 0) {
+                <h3 data-testid="create-hook-phase">Pre-create</h3>
+                @for (hook of preCreateHooks(); track hook.id) {
+                  <label data-testid="create-hook">
+                    <input type="checkbox" />
+                    {{ hook.label }}
+                  </label>
+                }
+              }
+              @if (postCreateHooks().length > 0) {
+                <h3 data-testid="create-hook-phase">Post-create</h3>
+                @for (hook of postCreateHooks(); track hook.id) {
+                  <label data-testid="create-hook">
+                    <input type="checkbox" />
+                    {{ hook.label }}
+                  </label>
+                }
+              }
+            </div>
+          }
           @if (workspaceError(); as message) {
             <p data-testid="workspace-error">{{ message }}</p>
           }
@@ -2483,6 +2529,9 @@ export class WorkspaceComponent implements OnInit, OnDestroy, AfterViewInit, Aft
   readonly createDialogOpen = signal(false);
   readonly createBranchName = signal('');
   readonly createBranchOptions = signal<string[]>([]);
+  readonly createHookRows = signal<CreateHookRow[]>([]);
+  readonly preCreateHooks = computed(() => this.createHookRows().filter((row) => row.phase === 'pre'));
+  readonly postCreateHooks = computed(() => this.createHookRows().filter((row) => row.phase === 'post'));
   readonly mergeDialogBranch = signal<string | null>(null);
   readonly removeDialogBranch = signal<string | null>(null);
   readonly removeForceDelete = signal(false);
@@ -5097,6 +5146,7 @@ export class WorkspaceComponent implements OnInit, OnDestroy, AfterViewInit, Aft
     this.creatingWorktree.set(false);
     this.createBranchName.set('');
     const path = this.effectivePath();
+    this.createHookRows.set(path === null ? [] : listCreateHooks(path));
     this.createDialogOpen.set(true);
     if (path === null) {
       this.branchNamesLoading.set(false);

@@ -65,6 +65,32 @@ function readRepoConfig(repoPath: string): RepoConfig {
   return TOML.parse(readFileSync(configPath, 'utf8')) as RepoConfig;
 }
 
+export interface CreateHookRow {
+  id: string;
+  phase: 'pre' | 'post';
+  label: string;
+}
+
+export function listCreateHooks(repoPath: string): CreateHookRow[] {
+  const config = readRepoConfig(repoPath);
+  return [
+    ...createCommandRows('pre', 'pre-command', config.hooks?.pre_worktree_create?.commands),
+    ...createCommandRows('post', 'post-command', config.hooks?.post_worktree_create?.commands),
+  ];
+}
+
+function createCommandRows(
+  phase: 'pre' | 'post',
+  kind: string,
+  commands: string[] | undefined,
+): CreateHookRow[] {
+  return (commands ?? []).map((command, index) => ({
+    id: `${kind}:${index}`,
+    phase,
+    label: command,
+  }));
+}
+
 function layoutForCreate(repoPath: string): LayoutMode {
   const layout = createLayoutForRepository(repoPath);
   if (!layout.supported) {

@@ -3118,6 +3118,42 @@ describe('desktop workspace', () => {
     expect(dialog.textContent).not.toMatch(/Pre-create|Post-create|Select all|Loading hooks|No hooks/i);
   });
 
+  it('lists create commands under Pre-create and Post-create in the order they run', async () => {
+    const repoPath = createEmptyRepository(roots);
+    mkdirSync(join(repoPath, '.git-worktree-manager'), { recursive: true });
+    writeFileSync(
+      join(repoPath, '.git-worktree-manager', 'config.toml'),
+      [
+        '[hooks.pre_worktree_create]',
+        'commands = ["echo pre-one", "echo pre-two"]',
+        '',
+        '[hooks.post_worktree_create]',
+        'commands = ["echo post-one"]',
+        '',
+      ].join('\n'),
+    );
+    process.env.GIT_WORKTREE_MANAGER_REGISTRY_PATH = join(repoPath, '..', 'registry.db');
+    addRepository(repoPath, 'Harbor');
+    const fixture = await renderRepository(repoPath);
+
+    fixture.nativeElement.querySelector('[data-testid="create-worktree"]').click();
+    fixture.detectChanges();
+
+    const dialog = fixture.nativeElement.querySelector('[data-testid="create-worktree-dialog"]');
+    const layout = dialog.querySelector('[data-testid="create-layout"]');
+    const phases = [...dialog.querySelectorAll('[data-testid="create-hook-phase"]')].map((phase) =>
+      phase.textContent.trim(),
+    );
+    const hooks = [...dialog.querySelectorAll('[data-testid="create-hook"]')].map((hook) => hook.textContent.trim());
+    expect(phases).toEqual(['Pre-create', 'Post-create']);
+    expect(hooks).toEqual(['echo pre-one', 'echo pre-two', 'echo post-one']);
+    expect(layout.compareDocumentPosition(dialog.querySelector('[data-testid="create-hook-phase"]')) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0);
+    expect(dialog.querySelector('[data-testid="create-hook-phase"]').compareDocumentPosition(dialog.querySelector('[data-testid="create-hook"]')) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0);
+    expect([...dialog.querySelectorAll('input[type="checkbox"]')]).toHaveLength(3);
+    expect(dialog.textContent).not.toMatch(/Select all/i);
+    expect(dialog.querySelector('[data-testid="create-worktree-info"]')).not.toBeNull();
+  });
+
   it('omits branches deleted on the remote from create worktree and still offers a local branch', async () => {
     const repoPath = createRepositoryWithDeletedRemoteBranches(roots);
     const fixture = await renderRepository(repoPath);
