@@ -6917,6 +6917,58 @@ describe('desktop workspace', () => {
     expect(git(repoPath, ['worktree', 'list'])).not.toContain(checkout);
   });
 
+  it('runs the remove hooks that were checked when the button was clicked', async () => {
+    const repoPath = createEmptyRepository(roots);
+    git(repoPath, ['branch', 'feature']);
+    const checkout = join(repoPath, '.workspaces', 'feature');
+    git(repoPath, ['worktree', 'add', checkout, 'feature']);
+    mkdirSync(join(repoPath, 'hooks'), { recursive: true });
+    const keptLog = join(repoPath, 'kept-hook.txt');
+    const skippedLog = join(repoPath, 'skipped-hook.txt');
+    writeFileSync(
+      join(repoPath, 'hooks', 'kept.mjs'),
+      `import { writeFileSync } from 'node:fs';\nwriteFileSync(${JSON.stringify(keptLog)}, 'kept\\n');\n`,
+    );
+    writeFileSync(
+      join(repoPath, 'hooks', 'skipped.mjs'),
+      `import { writeFileSync } from 'node:fs';\nwriteFileSync(${JSON.stringify(skippedLog)}, 'skipped\\n');\n`,
+    );
+    mkdirSync(join(repoPath, '.git-worktree-manager'), { recursive: true });
+    writeFileSync(
+      join(repoPath, '.git-worktree-manager', 'config.toml'),
+      '[hooks.pre_worktree_remove]\ncommands = ["node hooks/kept.mjs", "node hooks/skipped.mjs"]\n',
+    );
+    process.env.GIT_WORKTREE_MANAGER_REGISTRY_PATH = join(repoPath, '..', 'registry.db');
+    addRepository(repoPath, 'Harbor');
+    const fixture = await renderRepository(repoPath);
+
+    const row = fixture.nativeElement.querySelector('[data-branch="feature"]');
+    row.querySelector('[data-testid="remove-worktree"]').click();
+    fixture.detectChanges();
+    const dialog = fixture.nativeElement.querySelector('[data-testid="remove-worktree-dialog"]');
+    const hooks = [...dialog.querySelectorAll('[data-testid="remove-hook"]')];
+    const skippedBox = hooks[1].querySelector('input') as HTMLInputElement;
+    skippedBox.click();
+    fixture.detectChanges();
+    expect(skippedBox.checked).toBe(false);
+
+    const held = holdPaint();
+    try {
+      dialog.querySelector('[data-testid="confirm-remove-worktree"]').click();
+      skippedBox.click();
+      fixture.detectChanges();
+      expect(skippedBox.checked).toBe(true);
+      held.release();
+    } finally {
+      held.release();
+    }
+    await untilVisible(fixture, () => existsSync(keptLog) && !existsSync(checkout));
+
+    expect(readFileSync(keptLog, 'utf8')).toBe('kept\n');
+    expect(existsSync(skippedLog)).toBe(false);
+    expect(git(repoPath, ['worktree', 'list'])).not.toContain(checkout);
+  });
+
   it('deletes the local branch and runs only the remove hooks checked for that click', async () => {
     const repoPath = createEmptyRepository(roots);
     const origin = join(repoPath, '..', 'origin.git');
