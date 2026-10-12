@@ -38,7 +38,9 @@ Click a row to open it. Right-click a row to open the branch actions: Update fro
 
 Create worktree opens a dialog. The name field is New branch. Existing branches lists names that have no checkout, including a branch that exists only on a remote, and omits a branch whose remote copy was deleted. The heading is absent when that list is empty. Choosing a row fills the name field.
 
-The dialog shows the layout create will use, such as `Workspaces, the app default` or `Sibling, set by this repository`. Confirm runs the same create as the CLI. A new name creates a local branch at the primary checkout's current commit, with no upstream. A local branch is checked out as it is. A remote-only branch is fetched first. Pre-create hooks run before the worktree is added. Post-create hooks run after checkout. See [Worktrees and layouts](worktrees-and-layouts.md).
+The dialog shows the layout create will use, such as `Workspaces, the app default` or `Sibling, set by this repository`. An info icon sits immediately after the Create worktree title. Its tooltip is "A new name creates a local branch from the primary checkout, with no upstream. A remote-only branch is fetched first. Pre-create hooks run before the worktree is added. Post-create hooks run after checkout." A new name creates a local branch at the primary checkout's current commit, with no upstream. A local branch is checked out as it is. A remote-only branch is fetched first. See [Worktrees and layouts](worktrees-and-layouts.md).
+
+When the repository has at least one create hook, the dialog lists those hooks under the layout line. Pre-create and Post-create are the headings, in the order the hooks run. A phase with none has no heading. With no create hooks there is no list. Every hook starts checked. Unchecking a hook skips that step for this create only. Opening the dialog again checks every hook. The command line still runs every configured create hook. While plugin modules load, the list says `Loading hooks` and Create worktree stays disabled. Cancel stays available. A module that fails to load is not a hook. Each failure is a line, `Could not load hook module: <path>`.
 
 ## Content
 
