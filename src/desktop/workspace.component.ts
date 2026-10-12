@@ -60,6 +60,7 @@ import {
   createWorktree,
   findCheckout,
   listCreateHooks,
+  listRemoveHooks,
   removeWorktree,
   type CreateHookListing,
   type CreateHookRow,
@@ -675,12 +676,27 @@ button, input { font: inherit; color: inherit; }
   color: var(--coral);
 }
 
-[data-testid='create-hook-phase'] {
+[data-testid='create-hook-phase'],
+[data-testid='remove-hook-phase'] {
   margin: 8px 0 0;
   color: var(--forest);
   font-family: "Space Grotesk", sans-serif;
   font-size: 13px;
   font-weight: 600;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+[data-testid='remove-worktree-dialog'] [data-testid='remove-hook'] {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  color: var(--grid);
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: 12px;
+  font-weight: 400;
   letter-spacing: 0;
   text-transform: none;
 }
@@ -2038,6 +2054,28 @@ button, input { font: inherit; color: inherit; }
           <p data-testid="remove-worktree-note">
             The checkout goes away. Keep the local branch, or delete it. A remote branch stays. Deleting the local branch removes it even when it is not merged.
           </p>
+          @if (preRemoveHooks().length > 0 || postRemoveHooks().length > 0) {
+            <div data-testid="remove-hooks">
+              @if (preRemoveHooks().length > 0) {
+                <h3 data-testid="remove-hook-phase">Pre-remove</h3>
+                @for (hook of preRemoveHooks(); track hook.id) {
+                  <label data-testid="remove-hook">
+                    <input type="checkbox" [checked]="removeHookChecked().has(hook.id)" (change)="setRemoveHookIncluded(hook.id, $event)" />
+                    {{ hook.label }}
+                  </label>
+                }
+              }
+              @if (postRemoveHooks().length > 0) {
+                <h3 data-testid="remove-hook-phase">Post-remove</h3>
+                @for (hook of postRemoveHooks(); track hook.id) {
+                  <label data-testid="remove-hook">
+                    <input type="checkbox" [checked]="removeHookChecked().has(hook.id)" (change)="setRemoveHookIncluded(hook.id, $event)" />
+                    {{ hook.label }}
+                  </label>
+                }
+              }
+            </div>
+          }
           @if (workspaceError(); as message) {
             <p data-testid="workspace-error">{{ message }}</p>
           }
@@ -2571,6 +2609,10 @@ export class WorkspaceComponent implements OnInit, OnDestroy, AfterViewInit, Aft
   readonly postCreateHooks = computed(() => this.createHookRows().filter((row) => row.phase === 'post'));
   readonly mergeDialogBranch = signal<string | null>(null);
   readonly removeDialogBranch = signal<string | null>(null);
+  readonly removeHookRows = signal<CreateHookRow[]>([]);
+  readonly removeHookChecked = signal<ReadonlySet<string>>(new Set());
+  readonly preRemoveHooks = computed(() => this.removeHookRows().filter((row) => row.phase === 'pre'));
+  readonly postRemoveHooks = computed(() => this.removeHookRows().filter((row) => row.phase === 'post'));
   readonly removeForceDelete = signal(false);
   readonly mergeSquash = signal(false);
   readonly workspaceError = signal<string | null>(null);
@@ -5116,7 +5158,28 @@ export class WorkspaceComponent implements OnInit, OnDestroy, AfterViewInit, Aft
     }
     this.workspaceError.set(null);
     this.removeForceDelete.set(false);
+    const path = this.effectivePath();
+    this.replaceRemoveHooks(path === null ? emptyCreateHookListing() : listRemoveHooks(path));
     this.removeDialogBranch.set(name);
+  }
+
+  setRemoveHookIncluded(id: string, event: Event): void {
+    const target = event.target;
+    if (!(target instanceof HTMLInputElement)) {
+      return;
+    }
+    const next = new Set(this.removeHookChecked());
+    if (target.checked) {
+      next.add(id);
+    } else {
+      next.delete(id);
+    }
+    this.removeHookChecked.set(next);
+  }
+
+  private replaceRemoveHooks(listing: CreateHookListing): void {
+    this.removeHookRows.set(listing.rows);
+    this.removeHookChecked.set(new Set(listing.rows.map((row) => row.id)));
   }
 
   cancelRemove(): void {

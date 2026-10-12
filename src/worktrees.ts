@@ -94,6 +94,20 @@ export function listCreateHooks(repoPath: string): CreateHookListing {
   };
 }
 
+export function listRemoveHooks(repoPath: string): CreateHookListing {
+  const config = readRepoConfig(repoPath);
+  const { loaded, loadErrors } = loadListedPlugins(repoPath, config.hooks?.modules);
+  return {
+    rows: [
+      ...createCommandRows('pre', 'pre-command', config.hooks?.pre_worktree_remove?.commands),
+      ...createPluginRows('pre', 'pre-plugin', loaded, 'preWorktreeRemove'),
+      ...createCommandRows('post', 'post-command', config.hooks?.post_worktree_remove?.commands),
+      ...createPluginRows('post', 'post-plugin', loaded, 'postWorktreeRemove'),
+    ],
+    loadErrors,
+  };
+}
+
 function createCommandRows(
   phase: 'pre' | 'post',
   kind: string,
@@ -139,7 +153,7 @@ function createPluginRows(
   phase: 'pre' | 'post',
   kind: string,
   loaded: ListedPlugin[],
-  method: 'preWorktreeCreate' | 'postWorktreeCreate',
+  method: 'preWorktreeCreate' | 'postWorktreeCreate' | 'preWorktreeRemove' | 'postWorktreeRemove',
 ): CreateHookRow[] {
   const peers = loaded.filter((entry) => typeof entry.plugin[method] === 'function');
   return peers.map((entry) => ({
