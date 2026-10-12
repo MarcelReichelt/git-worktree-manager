@@ -55,7 +55,14 @@ import {
   type TerminalMode,
 } from '../app-settings.js';
 import { pushBranch } from '../push.js';
-import { createWorktree, findCheckout, listCreateHooks, removeWorktree, type CreateHookRow } from '../worktrees.js';
+import {
+  createHookModulePaths,
+  createWorktree,
+  findCheckout,
+  listCreateHooks,
+  removeWorktree,
+  type CreateHookRow,
+} from '../worktrees.js';
 import {
   contentSwatches,
   sidebarSwatches,
@@ -650,6 +657,14 @@ button, input { font: inherit; color: inherit; }
   font-weight: 400;
   letter-spacing: 0;
   text-transform: none;
+}
+
+[data-testid='loading-hooks'] {
+  margin: 0;
+  color: var(--grid);
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: 12px;
+  line-height: 1.4;
 }
 
 [data-testid='create-hook-phase'] {
@@ -1896,7 +1911,7 @@ button, input { font: inherit; color: inherit; }
     }
     @if (createDialogOpen()) {
       <div data-testid="create-worktree-dialog" role="dialog" aria-label="Create worktree" (click)="dismissCreateFromBackdrop($event)">
-        <section class="dialog-panel" gmOverlayScroll [attr.aria-busy]="branchNamesLoading() || creatingWorktree() ? true : null" (click)="$event.stopPropagation()">
+        <section class="dialog-panel" gmOverlayScroll [attr.aria-busy]="branchNamesLoading() || createHooksLoading() || creatingWorktree() ? true : null" (click)="$event.stopPropagation()">
           <h2>Create worktree<button type="button" data-testid="create-worktree-info" title="A new name creates a local branch from the primary checkout, with no upstream. A remote-only branch is fetched first. Pre-create hooks run before the worktree is added. Post-create hooks run after checkout." aria-label="About creating a worktree"><svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><circle cx="8" cy="8" r="6.25" fill="none" stroke="currentColor" stroke-width="1.5"></circle><path fill="currentColor" d="M7.2 7.1h1.6V12H7.2zM7.2 4.2h1.6v1.6H7.2z"></path></svg></button></h2>
           <label>
             New branch
@@ -1935,7 +1950,9 @@ button, input { font: inherit; color: inherit; }
             </div>
           }
           <p data-testid="create-layout">{{ createLayoutLine() }}</p>
-          @if (preCreateHooks().length > 0 || postCreateHooks().length > 0) {
+          @if (createHooksLoading()) {
+            <p data-testid="loading-hooks">Loading hooks</p>
+          } @else if (preCreateHooks().length > 0 || postCreateHooks().length > 0) {
             <div data-testid="create-hooks">
               @if (preCreateHooks().length > 0) {
                 <h3 data-testid="create-hook-phase">Pre-create</h3>
@@ -1961,7 +1978,7 @@ button, input { font: inherit; color: inherit; }
             <p data-testid="workspace-error">{{ message }}</p>
           }
           <div class="dialog-actions">
-            <button type="button" data-testid="confirm-create-worktree" [disabled]="branchNamesLoading()" (click)="createBranch()">{{ creatingWorktree() ? 'Creating worktree' : 'Create worktree' }}</button>
+            <button type="button" data-testid="confirm-create-worktree" [disabled]="branchNamesLoading() || createHooksLoading()" (click)="createBranch()">{{ creatingWorktree() ? 'Creating worktree' : 'Create worktree' }}</button>
             <button type="button" data-testid="cancel-create-worktree" (click)="cancelCreate()">Cancel</button>
           </div>
         </section>
@@ -2531,6 +2548,7 @@ export class WorkspaceComponent implements OnInit, OnDestroy, AfterViewInit, Aft
   readonly createBranchOptions = signal<string[]>([]);
   readonly createHookRows = signal<CreateHookRow[]>([]);
   readonly createHookChecked = signal<ReadonlySet<string>>(new Set());
+  readonly createHooksLoading = signal(false);
   readonly preCreateHooks = computed(() => this.createHookRows().filter((row) => row.phase === 'pre'));
   readonly postCreateHooks = computed(() => this.createHookRows().filter((row) => row.phase === 'post'));
   readonly mergeDialogBranch = signal<string | null>(null);
@@ -5147,7 +5165,9 @@ export class WorkspaceComponent implements OnInit, OnDestroy, AfterViewInit, Aft
     this.creatingWorktree.set(false);
     this.createBranchName.set('');
     const path = this.effectivePath();
-    this.replaceCreateHooks(path === null ? [] : listCreateHooks(path));
+    const modules = path === null ? [] : createHookModulePaths(path);
+    this.createHooksLoading.set(modules.length > 0);
+    this.replaceCreateHooks(path === null || modules.length > 0 ? [] : listCreateHooks(path));
     this.createDialogOpen.set(true);
     if (path === null) {
       this.branchNamesLoading.set(false);
@@ -5159,11 +5179,20 @@ export class WorkspaceComponent implements OnInit, OnDestroy, AfterViewInit, Aft
     this.runWhenPainted(() => {
       try {
         this.createBranchOptions.set(listRemoteBranchesWithoutWorktree(path));
-        this.branchNamesLoading.set(false);
       } catch (error) {
-        this.branchNamesLoading.set(false);
         this.workspaceError.set(errorText(error));
       }
+      this.branchNamesLoading.set(false);
+      if (modules.length === 0) {
+        return;
+      }
+      try {
+        this.replaceCreateHooks(listCreateHooks(path));
+      } catch (error) {
+        this.replaceCreateHooks([]);
+        this.workspaceError.set(errorText(error));
+      }
+      this.createHooksLoading.set(false);
     });
   }
 
@@ -5171,6 +5200,7 @@ export class WorkspaceComponent implements OnInit, OnDestroy, AfterViewInit, Aft
     this.workspaceError.set(null);
     this.createBranchName.set('');
     this.branchNamesLoading.set(false);
+    this.createHooksLoading.set(false);
     this.creatingWorktree.set(false);
     this.createDialogOpen.set(false);
   }
@@ -5210,7 +5240,7 @@ export class WorkspaceComponent implements OnInit, OnDestroy, AfterViewInit, Aft
 
   createBranch(): Promise<void> {
     const repo = this.effectivePath();
-    if (!repo || this.creatingWorktree() || this.branchNamesLoading()) {
+    if (!repo || this.creatingWorktree() || this.branchNamesLoading() || this.createHooksLoading()) {
       return Promise.resolve();
     }
     if (this.createBranchName().trim() === '') {

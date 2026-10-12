@@ -71,6 +71,10 @@ export interface CreateHookRow {
   label: string;
 }
 
+export function createHookModulePaths(repoPath: string): string[] {
+  return readRepoConfig(repoPath).hooks?.modules ?? [];
+}
+
 export function listCreateHooks(repoPath: string): CreateHookRow[] {
   const config = readRepoConfig(repoPath);
   const loaded = loadListedPlugins(repoPath, config.hooks?.modules);

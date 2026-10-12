@@ -3637,6 +3637,91 @@ describe('desktop workspace', () => {
     expect(hasRef(repoPath, 'refs/remotes/origin/feature')).toBe(true);
   });
 
+  it('shows Loading hooks and disables Create worktree while plugin modules load', async () => {
+    const repoPath = createEmptyRepository(roots);
+    mkdirSync(join(repoPath, 'plugins'), { recursive: true });
+    writeFileSync(
+      join(repoPath, 'plugins', 'alpha.ts'),
+      ['export default {', "  name: 'Alpha',", '  preWorktreeCreate() {},', '};', ''].join('\n'),
+    );
+    writeFileSync(
+      join(repoPath, 'plugins', 'beta.ts'),
+      ['export default {', "  name: 'Beta',", '  postWorktreeCreate() {},', '};', ''].join('\n'),
+    );
+    mkdirSync(join(repoPath, '.git-worktree-manager'), { recursive: true });
+    writeFileSync(
+      join(repoPath, '.git-worktree-manager', 'config.toml'),
+      [
+        '[hooks]',
+        'modules = ["plugins/alpha.ts", "plugins/beta.ts"]',
+        '',
+        '[hooks.pre_worktree_create]',
+        'commands = ["echo pre"]',
+        '',
+      ].join('\n'),
+    );
+    process.env.GIT_WORKTREE_MANAGER_REGISTRY_PATH = join(repoPath, '..', 'registry.db');
+    addRepository(repoPath, 'Harbor');
+    const fixture = await renderRepository(repoPath);
+    const held = holdPaint();
+    try {
+      fixture.nativeElement.querySelector('[data-testid="create-worktree"]').click();
+      fixture.detectChanges();
+      const dialog = fixture.nativeElement.querySelector('[data-testid="create-worktree-dialog"]');
+
+      expect(dialog.querySelector('[data-testid="loading-hooks"]').textContent.trim()).toBe('Loading hooks');
+      expect(dialog.querySelector('[data-testid="create-hook"]')).toBeNull();
+      expect(dialog.querySelector('[data-testid="confirm-create-worktree"]').disabled).toBe(true);
+      expect(dialog.querySelector('[data-testid="cancel-create-worktree"]').disabled).toBe(false);
+      expect(dialog.querySelector('[data-testid="create-worktree-info"]')).not.toBeNull();
+
+      held.release();
+      fixture.detectChanges();
+
+      expect(dialog.querySelector('[data-testid="loading-hooks"]')).toBeNull();
+      expect([...dialog.querySelectorAll('[data-testid="create-hook"]')].map((hook) => hook.textContent.trim())).toEqual([
+        'echo pre',
+        'Alpha',
+        'Beta',
+      ]);
+      expect(dialog.querySelector('[data-testid="confirm-create-worktree"]').disabled).toBe(false);
+    } finally {
+      held.release();
+    }
+  });
+
+  it('does not show Loading hooks when the repository has no plugin modules', async () => {
+    const repoPath = createEmptyRepository(roots);
+    mkdirSync(join(repoPath, '.git-worktree-manager'), { recursive: true });
+    writeFileSync(
+      join(repoPath, '.git-worktree-manager', 'config.toml'),
+      '[hooks.pre_worktree_create]\ncommands = ["echo pre", "echo next"]\n',
+    );
+    process.env.GIT_WORKTREE_MANAGER_REGISTRY_PATH = join(repoPath, '..', 'registry.db');
+    addRepository(repoPath, 'Harbor');
+    const fixture = await renderRepository(repoPath);
+    const held = holdPaint();
+    try {
+      fixture.nativeElement.querySelector('[data-testid="create-worktree"]').click();
+      fixture.detectChanges();
+      const dialog = fixture.nativeElement.querySelector('[data-testid="create-worktree-dialog"]');
+
+      expect(dialog.querySelector('[data-testid="loading-hooks"]')).toBeNull();
+      expect([...dialog.querySelectorAll('[data-testid="create-hook"]')].map((hook) => hook.textContent.trim())).toEqual([
+        'echo pre',
+        'echo next',
+      ]);
+      expect(dialog.querySelector('[data-testid="confirm-create-worktree"]').disabled).toBe(true);
+      expect(dialog.querySelector('[data-testid="cancel-create-worktree"]').disabled).toBe(false);
+
+      dialog.querySelector('[data-testid="cancel-create-worktree"]').click();
+      fixture.detectChanges();
+      expect(fixture.nativeElement.querySelector('[data-testid="create-worktree-dialog"]')).toBeNull();
+    } finally {
+      held.release();
+    }
+  });
+
   it('omits branches deleted on the remote from create worktree and still offers a local branch', async () => {
     const repoPath = createRepositoryWithDeletedRemoteBranches(roots);
     const fixture = await renderRepository(repoPath);
@@ -7936,6 +8021,9 @@ describe('desktop workspace', () => {
 
       expect(dialog.querySelector('[data-testid="loading-branches"]').textContent.trim()).toBe('Loading branches');
       expect(field.disabled).toBe(true);
+      expect(dialog.querySelector('[data-testid="confirm-create-worktree"]').disabled).toBe(true);
+      expect(dialog.querySelector('[data-testid="cancel-create-worktree"]').disabled).toBe(false);
+      expect(dialog.querySelector('[data-testid="loading-hooks"]')).toBeNull();
       expect(dialog.querySelector('[data-testid="create-branch-option"]')).toBeNull();
 
       held.release();
