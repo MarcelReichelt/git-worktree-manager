@@ -1941,7 +1941,7 @@ button, input { font: inherit; color: inherit; }
                 <h3 data-testid="create-hook-phase">Pre-create</h3>
                 @for (hook of preCreateHooks(); track hook.id) {
                   <label data-testid="create-hook">
-                    <input type="checkbox" />
+                    <input type="checkbox" [checked]="createHookChecked().has(hook.id)" (change)="setCreateHookIncluded(hook.id, $event)" />
                     {{ hook.label }}
                   </label>
                 }
@@ -1950,7 +1950,7 @@ button, input { font: inherit; color: inherit; }
                 <h3 data-testid="create-hook-phase">Post-create</h3>
                 @for (hook of postCreateHooks(); track hook.id) {
                   <label data-testid="create-hook">
-                    <input type="checkbox" />
+                    <input type="checkbox" [checked]="createHookChecked().has(hook.id)" (change)="setCreateHookIncluded(hook.id, $event)" />
                     {{ hook.label }}
                   </label>
                 }
@@ -2530,6 +2530,7 @@ export class WorkspaceComponent implements OnInit, OnDestroy, AfterViewInit, Aft
   readonly createBranchName = signal('');
   readonly createBranchOptions = signal<string[]>([]);
   readonly createHookRows = signal<CreateHookRow[]>([]);
+  readonly createHookChecked = signal<ReadonlySet<string>>(new Set());
   readonly preCreateHooks = computed(() => this.createHookRows().filter((row) => row.phase === 'pre'));
   readonly postCreateHooks = computed(() => this.createHookRows().filter((row) => row.phase === 'post'));
   readonly mergeDialogBranch = signal<string | null>(null);
@@ -5146,7 +5147,7 @@ export class WorkspaceComponent implements OnInit, OnDestroy, AfterViewInit, Aft
     this.creatingWorktree.set(false);
     this.createBranchName.set('');
     const path = this.effectivePath();
-    this.createHookRows.set(path === null ? [] : listCreateHooks(path));
+    this.replaceCreateHooks(path === null ? [] : listCreateHooks(path));
     this.createDialogOpen.set(true);
     if (path === null) {
       this.branchNamesLoading.set(false);
@@ -5182,6 +5183,25 @@ export class WorkspaceComponent implements OnInit, OnDestroy, AfterViewInit, Aft
 
   setCreateBranchName(event: Event): void {
     this.createBranchName.set(inputValue(event));
+  }
+
+  setCreateHookIncluded(id: string, event: Event): void {
+    const target = event.target;
+    if (!(target instanceof HTMLInputElement)) {
+      return;
+    }
+    const next = new Set(this.createHookChecked());
+    if (target.checked) {
+      next.add(id);
+    } else {
+      next.delete(id);
+    }
+    this.createHookChecked.set(next);
+  }
+
+  private replaceCreateHooks(rows: CreateHookRow[]): void {
+    this.createHookRows.set(rows);
+    this.createHookChecked.set(new Set(rows.map((row) => row.id)));
   }
 
   chooseCreateBranch(name: string): void {

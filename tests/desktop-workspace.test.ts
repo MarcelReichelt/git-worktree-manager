@@ -3317,6 +3317,50 @@ describe('desktop workspace', () => {
     ]);
   });
 
+  it('checks every create hook when the dialog opens and leaves the config unchanged', async () => {
+    const repoPath = createEmptyRepository(roots);
+    mkdirSync(join(repoPath, '.git-worktree-manager'), { recursive: true });
+    const configPath = join(repoPath, '.git-worktree-manager', 'config.toml');
+    const config = [
+      '[hooks.pre_worktree_create]',
+      'commands = ["echo one", "echo two"]',
+      '',
+      '[hooks.post_worktree_create]',
+      'commands = ["echo after"]',
+      '',
+    ].join('\n');
+    writeFileSync(configPath, config);
+    process.env.GIT_WORKTREE_MANAGER_REGISTRY_PATH = join(repoPath, '..', 'registry.db');
+    addRepository(repoPath, 'Harbor');
+    const fixture = await renderRepository(repoPath);
+
+    fixture.nativeElement.querySelector('[data-testid="create-worktree"]').click();
+    fixture.detectChanges();
+
+    const dialog = fixture.nativeElement.querySelector('[data-testid="create-worktree-dialog"]');
+    const boxes = () =>
+      [...dialog.querySelectorAll('[data-testid="create-hook"] input')] as HTMLInputElement[];
+    expect(boxes().map((box) => box.checked)).toEqual([true, true, true]);
+
+    boxes()[0].click();
+    fixture.detectChanges();
+    expect(boxes().map((box) => box.checked)).toEqual([false, true, true]);
+    expect(readFileSync(configPath, 'utf8')).toBe(config);
+
+    dialog.querySelector('[data-testid="cancel-create-worktree"]').click();
+    fixture.detectChanges();
+    fixture.nativeElement.querySelector('[data-testid="create-worktree"]').click();
+    fixture.detectChanges();
+
+    const reopened = fixture.nativeElement.querySelector('[data-testid="create-worktree-dialog"]');
+    expect(
+      [...reopened.querySelectorAll('[data-testid="create-hook"] input')].map(
+        (box) => (box as HTMLInputElement).checked,
+      ),
+    ).toEqual([true, true, true]);
+    expect(readFileSync(configPath, 'utf8')).toBe(config);
+  });
+
   it('omits branches deleted on the remote from create worktree and still offers a local branch', async () => {
     const repoPath = createRepositoryWithDeletedRemoteBranches(roots);
     const fixture = await renderRepository(repoPath);
