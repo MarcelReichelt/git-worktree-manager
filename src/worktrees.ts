@@ -333,19 +333,27 @@ interface LoadedPlugin {
 async function loadPlugins(
   repoPath: string,
   modules: string[] | undefined,
+  options?: { createLoadError?: boolean },
 ): Promise<LoadedPlugin[]> {
   if (!modules || modules.length === 0) {
     return [];
   }
   const jiti = createJiti(join(repoPath, 'package.json'));
   const plugins: LoadedPlugin[] = [];
-  for (const [moduleIndex, modulePath] of (modules ?? []).entries()) {
-    // jiti.import() uses dynamic import(). The desktop window is a classic
-    // script, so that import tries to fetch node builtins such as node:fs.
-    const loaded = jiti(resolve(repoPath, modulePath)) as WorktreePlugin & {
-      default?: WorktreePlugin;
-    };
-    plugins.push({ moduleIndex, plugin: loaded.default ?? loaded });
+  for (const [moduleIndex, modulePath] of modules.entries()) {
+    try {
+      // jiti.import() uses dynamic import(). The desktop window is a classic
+      // script, so that import tries to fetch node builtins such as node:fs.
+      const loaded = jiti(resolve(repoPath, modulePath)) as WorktreePlugin & {
+        default?: WorktreePlugin;
+      };
+      plugins.push({ moduleIndex, plugin: loaded.default ?? loaded });
+    } catch (error) {
+      if (options?.createLoadError) {
+        throw new Error(`Could not load hook module: ${modulePath}`);
+      }
+      throw error;
+    }
   }
   return plugins;
 }
@@ -532,7 +540,7 @@ export async function createWorktree(
     branchSource: worktreeBranchSource(mode),
   };
 
-  const plugins = await loadPlugins(repository.path, config.hooks?.modules);
+  const plugins = await loadPlugins(repository.path, config.hooks?.modules, { createLoadError: true });
   const skip = options?.skip;
   runHookCommands(
     repository.path,

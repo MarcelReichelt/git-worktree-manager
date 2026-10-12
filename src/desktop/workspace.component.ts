@@ -5281,6 +5281,7 @@ export class WorkspaceComponent implements OnInit, OnDestroy, AfterViewInit, Aft
           (error: unknown) => {
             this.zone.run(() => {
               this.creatingWorktree.set(false);
+              this.createHookLoadErrors.set([]);
               this.workspaceError.set(errorText(error));
               resolve();
             });
