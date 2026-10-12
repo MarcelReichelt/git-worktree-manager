@@ -5176,12 +5176,7 @@ export class WorkspaceComponent implements OnInit, OnDestroy, AfterViewInit, Aft
       return;
     }
     this.runWhenPainted(() => {
-      try {
-        this.replaceRemoveHooks(listRemoveHooks(path));
-      } catch (error) {
-        this.replaceRemoveHooks(emptyCreateHookListing());
-        this.workspaceError.set(errorText(error));
-      }
+      this.replaceRemoveHooks(listRemoveHooks(path));
       this.removeHooksLoading.set(false);
     });
   }
@@ -5238,7 +5233,7 @@ export class WorkspaceComponent implements OnInit, OnDestroy, AfterViewInit, Aft
         .map((row) => row.id),
     );
     this.runWhenPainted(() => {
-      void removeWorktree(repo, name, { deleteBranch, force, skip }).then(
+      void removeWorktree(repo, name, { deleteBranch, force, skip, createLoadError: true }).then(
         () => {
           this.zone.run(() => {
             if (this.openBranch() === name) {
@@ -5298,12 +5293,7 @@ export class WorkspaceComponent implements OnInit, OnDestroy, AfterViewInit, Aft
       if (modules.length === 0) {
         return;
       }
-      try {
-        this.replaceCreateHooks(listCreateHooks(path));
-      } catch (error) {
-        this.replaceCreateHooks(emptyCreateHookListing());
-        this.workspaceError.set(errorText(error));
-      }
+      this.replaceCreateHooks(listCreateHooks(path));
       this.createHooksLoading.set(false);
     });
   }
@@ -5370,7 +5360,7 @@ export class WorkspaceComponent implements OnInit, OnDestroy, AfterViewInit, Aft
             .filter((row) => !this.createHookChecked().has(row.id))
             .map((row) => row.id),
         );
-        void createWorktree(repo, branchName, { skip }).then(
+        void createWorktree(repo, branchName, { skip, createLoadError: true }).then(
           () => {
             this.zone.run(() => {
               this.refreshBranches([branchName]);

@@ -3317,6 +3317,56 @@ describe('desktop workspace', () => {
     ]);
   });
 
+  it('shows the module path when two plugins share a name on different create phases', async () => {
+    const repoPath = createEmptyRepository(roots);
+    mkdirSync(join(repoPath, 'plugins'), { recursive: true });
+    writeFileSync(
+      join(repoPath, 'plugins', 'pre.ts'),
+      ['export default {', "  name: 'Shared',", '  preWorktreeCreate() {},', '};', ''].join('\n'),
+    );
+    writeFileSync(
+      join(repoPath, 'plugins', 'post.ts'),
+      ['export default {', "  name: 'Shared',", '  postWorktreeCreate() {},', '};', ''].join('\n'),
+    );
+    writeFileSync(
+      join(repoPath, 'plugins', 'both.ts'),
+      [
+        'export default {',
+        "  name: 'Both',",
+        '  preWorktreeCreate() {},',
+        '  postWorktreeCreate() {},',
+        '};',
+        '',
+      ].join('\n'),
+    );
+    mkdirSync(join(repoPath, '.git-worktree-manager'), { recursive: true });
+    writeFileSync(
+      join(repoPath, '.git-worktree-manager', 'config.toml'),
+      [
+        '[hooks]',
+        'modules = ["plugins/pre.ts", "plugins/post.ts", "plugins/both.ts"]',
+        '',
+      ].join('\n'),
+    );
+    process.env.GIT_WORKTREE_MANAGER_REGISTRY_PATH = join(repoPath, '..', 'registry.db');
+    addRepository(repoPath, 'Harbor');
+    const fixture = await renderRepository(repoPath);
+
+    fixture.nativeElement.querySelector('[data-testid="create-worktree"]').click();
+    fixture.detectChanges();
+
+    const dialog = fixture.nativeElement.querySelector('[data-testid="create-worktree-dialog"]');
+    expect(
+      [...dialog.querySelectorAll('[data-testid="create-hook-phase"]')].map((phase) => phase.textContent.trim()),
+    ).toEqual(['Pre-create', 'Post-create']);
+    expect([...dialog.querySelectorAll('[data-testid="create-hook"]')].map((hook) => hook.textContent.trim())).toEqual([
+      'plugins/pre.ts',
+      'Both',
+      'plugins/post.ts',
+      'Both',
+    ]);
+  });
+
   it('checks every create hook when the dialog opens and leaves the config unchanged', async () => {
     const repoPath = createEmptyRepository(roots);
     mkdirSync(join(repoPath, '.git-worktree-manager'), { recursive: true });
@@ -6722,6 +6772,60 @@ describe('desktop workspace', () => {
       'Solo',
       'plugins/blank.ts',
       'Solo',
+    ]);
+  });
+
+  it('shows the module path when two plugins share a name on different remove phases', async () => {
+    const repoPath = createEmptyRepository(roots);
+    git(repoPath, ['branch', 'feature']);
+    const checkout = join(repoPath, '.workspaces', 'feature');
+    git(repoPath, ['worktree', 'add', checkout, 'feature']);
+    mkdirSync(join(repoPath, 'plugins'), { recursive: true });
+    writeFileSync(
+      join(repoPath, 'plugins', 'pre.ts'),
+      ['export default {', "  name: 'Shared',", '  preWorktreeRemove() {},', '};', ''].join('\n'),
+    );
+    writeFileSync(
+      join(repoPath, 'plugins', 'post.ts'),
+      ['export default {', "  name: 'Shared',", '  postWorktreeRemove() {},', '};', ''].join('\n'),
+    );
+    writeFileSync(
+      join(repoPath, 'plugins', 'both.ts'),
+      [
+        'export default {',
+        "  name: 'Both',",
+        '  preWorktreeRemove() {},',
+        '  postWorktreeRemove() {},',
+        '};',
+        '',
+      ].join('\n'),
+    );
+    mkdirSync(join(repoPath, '.git-worktree-manager'), { recursive: true });
+    writeFileSync(
+      join(repoPath, '.git-worktree-manager', 'config.toml'),
+      [
+        '[hooks]',
+        'modules = ["plugins/pre.ts", "plugins/post.ts", "plugins/both.ts"]',
+        '',
+      ].join('\n'),
+    );
+    process.env.GIT_WORKTREE_MANAGER_REGISTRY_PATH = join(repoPath, '..', 'registry.db');
+    addRepository(repoPath, 'Harbor');
+    const fixture = await renderRepository(repoPath);
+
+    const row = fixture.nativeElement.querySelector('[data-branch="feature"]');
+    row.querySelector('[data-testid="remove-worktree"]').click();
+    fixture.detectChanges();
+
+    const dialog = fixture.nativeElement.querySelector('[data-testid="remove-worktree-dialog"]');
+    expect(
+      [...dialog.querySelectorAll('[data-testid="remove-hook-phase"]')].map((phase) => phase.textContent.trim()),
+    ).toEqual(['Pre-remove', 'Post-remove']);
+    expect([...dialog.querySelectorAll('[data-testid="remove-hook"]')].map((hook) => hook.textContent.trim())).toEqual([
+      'plugins/pre.ts',
+      'Both',
+      'plugins/post.ts',
+      'Both',
     ]);
   });
 

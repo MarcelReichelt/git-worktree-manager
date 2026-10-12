@@ -159,16 +159,16 @@ function createPluginRows(
   return peers.map((entry) => ({
     id: `${kind}:${entry.moduleIndex}`,
     phase,
-    label: createPluginLabel(entry, peers),
+    label: createPluginLabel(entry, loaded),
   }));
 }
 
-function createPluginLabel(entry: ListedPlugin, peers: ListedPlugin[]): string {
+function createPluginLabel(entry: ListedPlugin, loaded: ListedPlugin[]): string {
   const name = pluginName(entry.plugin);
   if (name === '') {
     return entry.modulePath;
   }
-  const sameName = peers.filter((peer) => pluginName(peer.plugin) === name);
+  const sameName = loaded.filter((plugin) => pluginName(plugin.plugin) === name);
   return sameName.length > 1 ? entry.modulePath : name;
 }
 
@@ -531,8 +531,9 @@ function checkoutPath(repositoryPath: string, layout: LayoutMode, folder: string
   return join(repositoryPath, '.workspaces', folder);
 }
 
-export interface CreateWorktreeOptions {
+interface CreateWorktreeOptions {
   skip?: ReadonlySet<string>;
+  createLoadError?: boolean;
 }
 
 export async function createWorktree(
@@ -562,7 +563,9 @@ export async function createWorktree(
     branchSource: worktreeBranchSource(mode),
   };
 
-  const plugins = await loadPlugins(repository.path, config.hooks?.modules, { createLoadError: true });
+  const plugins = await loadPlugins(repository.path, config.hooks?.modules, {
+    createLoadError: options?.createLoadError === true,
+  });
   const skip = options?.skip;
   runHookCommands(
     repository.path,
@@ -603,7 +606,12 @@ export async function createWorktree(
 export async function removeWorktree(
   repoQuery: string,
   branch: string,
-  options: { deleteBranch: boolean; force?: boolean; skip?: ReadonlySet<string> },
+  options: {
+    deleteBranch: boolean;
+    force?: boolean;
+    skip?: ReadonlySet<string>;
+    createLoadError?: boolean;
+  },
 ): Promise<void> {
   const { repoPath, checkout } = removableCheckout(repoQuery, branch);
   const config = readRepoConfig(repoPath);
@@ -613,7 +621,9 @@ export async function removeWorktree(
     repositoryPath: repoPath,
     deleteBranch: options.deleteBranch,
   };
-  const plugins = await loadPlugins(repoPath, config.hooks?.modules, { createLoadError: true });
+  const plugins = await loadPlugins(repoPath, config.hooks?.modules, {
+    createLoadError: options.createLoadError === true,
+  });
   const skip = options.skip;
   runHookCommands(
     repoPath,

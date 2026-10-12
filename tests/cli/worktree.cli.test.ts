@@ -291,6 +291,45 @@ describe('git-worktree-manager worktree create', () => {
     expect(existsSync(join(repoPath, '.workspaces', 'login'))).toBe(false);
   });
 
+  it('keeps the loader error when a configured hook module is missing', () => {
+    const root = makeTempDir('git-worktree-manager-missing-module-');
+    roots.push(root);
+    const repoPath = join(root, 'harbor');
+    const registryPath = join(root, 'registry.db');
+    initGitRepo(repoPath);
+    git(repoPath, ['branch', 'login']);
+    mkdirSync(join(repoPath, '.git-worktree-manager'), { recursive: true });
+    writeFileSync(
+      join(repoPath, '.git-worktree-manager', 'config.toml'),
+      '[hooks]\nmodules = ["plugins/missing.ts"]\n',
+    );
+    const env = gitWorktreeManagerEnv(registryPath);
+    expect(runGitWorktreeManager(['add', '--path', repoPath, '--name', 'Harbor'], env).status).toBe(0);
+    const worktreesBefore = git(repoPath, ['worktree', 'list']);
+
+    const created = runGitWorktreeManager(
+      ['worktree', 'create', 'login', '--repo', 'Harbor'],
+      env,
+    );
+    expect(created.status).toBe(1);
+    expect(created.stderr).not.toBe('');
+    expect(created.stderr).not.toContain('Could not load hook module:');
+    expect(git(repoPath, ['worktree', 'list'])).toBe(worktreesBefore);
+    expect(existsSync(join(repoPath, '.workspaces', 'login'))).toBe(false);
+
+    const checkout = join(repoPath, '.workspaces', 'login');
+    git(repoPath, ['worktree', 'add', checkout, 'login']);
+    const removed = runGitWorktreeManager(
+      ['worktree', 'remove', 'login', '--repo', 'Harbor', '--keep-branch'],
+      env,
+    );
+    expect(removed.status).toBe(1);
+    expect(removed.stderr).not.toBe('');
+    expect(removed.stderr).not.toContain('Could not load hook module:');
+    expect(existsSync(checkout)).toBe(true);
+    expect(git(repoPath, ['rev-parse', '--verify', 'refs/heads/login'])).toMatch(/^[0-9a-f]{40}$/);
+  });
+
   it('runs a shell command and a TypeScript plugin when creating a worktree', () => {
     const root = makeTempDir('git-worktree-manager-both-hooks-');
     roots.push(root);
