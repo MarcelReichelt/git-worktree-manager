@@ -291,8 +291,12 @@ function runHookCommands(
   repoPath: string,
   commands: string[] | undefined,
   context: HookContext,
+  skip?: ReadonlySet<number>,
 ): void {
-  for (const command of commands ?? []) {
+  for (const [index, command] of (commands ?? []).entries()) {
+    if (skip?.has(index)) {
+      continue;
+    }
     execSync(command, {
       cwd: repoPath,
       stdio: 'inherit',
@@ -301,65 +305,96 @@ function runHookCommands(
   }
 }
 
+interface LoadedPlugin {
+  moduleIndex: number;
+  plugin: WorktreePlugin;
+}
+
 async function loadPlugins(
   repoPath: string,
   modules: string[] | undefined,
-): Promise<WorktreePlugin[]> {
+): Promise<LoadedPlugin[]> {
   if (!modules || modules.length === 0) {
     return [];
   }
   const jiti = createJiti(join(repoPath, 'package.json'));
-  const plugins: WorktreePlugin[] = [];
-  for (const modulePath of modules) {
+  const plugins: LoadedPlugin[] = [];
+  for (const [moduleIndex, modulePath] of (modules ?? []).entries()) {
     // jiti.import() uses dynamic import(). The desktop window is a classic
     // script, so that import tries to fetch node builtins such as node:fs.
     const loaded = jiti(resolve(repoPath, modulePath)) as WorktreePlugin & {
       default?: WorktreePlugin;
     };
-    plugins.push(loaded.default ?? loaded);
+    plugins.push({ moduleIndex, plugin: loaded.default ?? loaded });
   }
   return plugins;
 }
 
+function skippedHookIndexes(skip: ReadonlySet<string> | undefined, kind: string): ReadonlySet<number> | undefined {
+  if (!skip || skip.size === 0) {
+    return undefined;
+  }
+  const indexes = new Set<number>();
+  const prefix = `${kind}:`;
+  for (const id of skip) {
+    if (!id.startsWith(prefix)) {
+      continue;
+    }
+    const index = Number(id.slice(prefix.length));
+    if (Number.isInteger(index) && index >= 0) {
+      indexes.add(index);
+    }
+  }
+  return indexes;
+}
+
 async function runPrePlugins(
-  plugins: WorktreePlugin[],
+  plugins: LoadedPlugin[],
   context: WorktreeCreateContext,
+  skip?: ReadonlySet<number>,
 ): Promise<void> {
-  for (const plugin of plugins) {
-    const result = await plugin.preWorktreeCreate?.(context);
+  for (const entry of plugins) {
+    if (skip?.has(entry.moduleIndex)) {
+      continue;
+    }
+    const result = await entry.plugin.preWorktreeCreate?.(context);
     if (result === 'abort') {
-      throw new Error(`${plugin.name} aborted worktree create`);
+      throw new Error(`${entry.plugin.name} aborted worktree create`);
     }
   }
 }
 
 async function runPostPlugins(
-  plugins: WorktreePlugin[],
+  plugins: LoadedPlugin[],
   context: WorktreeCreateContext,
+  skip?: ReadonlySet<number>,
 ): Promise<void> {
-  for (const plugin of plugins) {
-    await plugin.postWorktreeCreate?.(context);
+  for (const entry of plugins) {
+    if (skip?.has(entry.moduleIndex)) {
+      continue;
+    }
+    await entry.plugin.postWorktreeCreate?.(context);
   }
 }
 
 async function runPreRemovePlugins(
-  plugins: WorktreePlugin[],
+  plugins: LoadedPlugin[],
   context: WorktreeRemoveContext,
 ): Promise<void> {
-  for (const plugin of plugins) {
-    const result = await plugin.preWorktreeRemove?.(context);
+  for (const entry of plugins) {
+    const result = await entry.plugin.preWorktreeRemove?.(context);
     if (result === 'abort') {
-      throw new Error(`${plugin.name} aborted worktree remove`);
+      throw new Error(`${entry.plugin.name} aborted worktree remove`);
     }
   }
 }
 
 async function runPostRemovePlugins(
-  plugins: WorktreePlugin[],
+  plugins: LoadedPlugin[],
   context: WorktreeRemoveContext,
 ): Promise<void> {
-  for (const plugin of plugins) {
-    await plugin.postWorktreeRemove?.(context);
+  for (const entry of plugins) {
+    await entry.plugin.postWorktreeRemove?.(context);
   }
 }
 
@@ -446,7 +481,15 @@ function checkoutPath(repositoryPath: string, layout: LayoutMode, folder: string
   return join(repositoryPath, '.workspaces', folder);
 }
 
-export async function createWorktree(repoQuery: string, branch: string): Promise<string> {
+export interface CreateWorktreeOptions {
+  skip?: ReadonlySet<string>;
+}
+
+export async function createWorktree(
+  repoQuery: string,
+  branch: string,
+  options?: CreateWorktreeOptions,
+): Promise<string> {
   const repository = findRepository(repoQuery);
   if (!repository) {
     throw new Error(`Repository not found: ${repoQuery}`);
@@ -470,8 +513,14 @@ export async function createWorktree(repoQuery: string, branch: string): Promise
   };
 
   const plugins = await loadPlugins(repository.path, config.hooks?.modules);
-  runHookCommands(repository.path, config.hooks?.pre_worktree_create?.commands, context);
-  await runPrePlugins(plugins, context);
+  const skip = options?.skip;
+  runHookCommands(
+    repository.path,
+    config.hooks?.pre_worktree_create?.commands,
+    context,
+    skippedHookIndexes(skip, 'pre-command'),
+  );
+  await runPrePlugins(plugins, context, skippedHookIndexes(skip, 'pre-plugin'));
 
   mkdirSync(dirname(checkout), { recursive: true });
   if (mode === 'local') {
@@ -491,8 +540,13 @@ export async function createWorktree(repoQuery: string, branch: string): Promise
   }
 
   copyConfiguredFiles(repository.path, checkout, config.copy?.files);
-  runHookCommands(repository.path, config.hooks?.post_worktree_create?.commands, context);
-  await runPostPlugins(plugins, context);
+  runHookCommands(
+    repository.path,
+    config.hooks?.post_worktree_create?.commands,
+    context,
+    skippedHookIndexes(skip, 'post-command'),
+  );
+  await runPostPlugins(plugins, context, skippedHookIndexes(skip, 'post-plugin'));
   return checkout;
 }
 

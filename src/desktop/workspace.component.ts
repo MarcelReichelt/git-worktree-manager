@@ -5222,7 +5222,12 @@ export class WorkspaceComponent implements OnInit, OnDestroy, AfterViewInit, Aft
     this.creatingWorktree.set(true);
     return new Promise((resolve) => {
       this.runWhenPainted(() => {
-        void createWorktree(repo, branchName).then(
+        const skip = new Set(
+          this.createHookRows()
+            .filter((row) => !this.createHookChecked().has(row.id))
+            .map((row) => row.id),
+        );
+        void createWorktree(repo, branchName, { skip }).then(
           () => {
             this.zone.run(() => {
               this.refreshBranches([branchName]);

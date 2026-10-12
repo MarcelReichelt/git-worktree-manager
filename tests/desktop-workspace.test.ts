@@ -3361,6 +3361,98 @@ describe('desktop workspace', () => {
     expect(readFileSync(configPath, 'utf8')).toBe(config);
   });
 
+  it('runs checked create hooks and skips unchecked ones', async () => {
+    const repoPath = createEmptyRepository(roots);
+    git(repoPath, ['branch', 'notes']);
+    mkdirSync(join(repoPath, 'hooks'), { recursive: true });
+    mkdirSync(join(repoPath, 'plugins'), { recursive: true });
+    const commandLog = join(repoPath, 'command-ran.txt');
+    const keptPlugin = join(repoPath, 'kept-plugin.txt');
+    const skippedPlugin = join(repoPath, 'skipped-plugin.txt');
+    const postLog = join(repoPath, 'post-ran.txt');
+    writeFileSync(
+      join(repoPath, 'hooks', 'mark.mjs'),
+      `import { appendFileSync } from 'node:fs';\nappendFileSync(${JSON.stringify(commandLog)}, 'ran\\n');\n`,
+    );
+    writeFileSync(
+      join(repoPath, 'hooks', 'post.mjs'),
+      `import { writeFileSync } from 'node:fs';\nwriteFileSync(${JSON.stringify(postLog)}, 'post\\n');\n`,
+    );
+    writeFileSync(
+      join(repoPath, 'plugins', 'kept.ts'),
+      [
+        "import { writeFileSync } from 'node:fs';",
+        'export default {',
+        "  name: 'kept',",
+        '  preWorktreeCreate() {',
+        `    writeFileSync(${JSON.stringify(keptPlugin)}, 'kept\\n');`,
+        '  },',
+        '};',
+        '',
+      ].join('\n'),
+    );
+    writeFileSync(
+      join(repoPath, 'plugins', 'skipped.ts'),
+      [
+        "import { writeFileSync } from 'node:fs';",
+        'export default {',
+        "  name: 'skipped',",
+        '  postWorktreeCreate() {',
+        `    writeFileSync(${JSON.stringify(skippedPlugin)}, 'skipped\\n');`,
+        '  },',
+        '};',
+        '',
+      ].join('\n'),
+    );
+    mkdirSync(join(repoPath, '.git-worktree-manager'), { recursive: true });
+    writeFileSync(
+      join(repoPath, '.git-worktree-manager', 'config.toml'),
+      [
+        '[hooks]',
+        'modules = ["plugins/kept.ts", "plugins/skipped.ts"]',
+        '',
+        '[hooks.pre_worktree_create]',
+        'commands = ["node hooks/mark.mjs", "node hooks/mark.mjs"]',
+        '',
+        '[hooks.post_worktree_create]',
+        'commands = ["node hooks/post.mjs"]',
+        '',
+      ].join('\n'),
+    );
+    process.env.GIT_WORKTREE_MANAGER_REGISTRY_PATH = join(repoPath, '..', 'registry.db');
+    addRepository(repoPath, 'Harbor');
+    const fixture = await renderRepository(repoPath);
+
+    fixture.nativeElement.querySelector('[data-testid="create-worktree"]').click();
+    fixture.detectChanges();
+    const dialog = fixture.nativeElement.querySelector('[data-testid="create-worktree-dialog"]');
+    const rows = [...dialog.querySelectorAll('[data-testid="create-hook"]')];
+    expect(rows.map((row) => row.textContent.trim())).toEqual([
+      'node hooks/mark.mjs',
+      'node hooks/mark.mjs',
+      'kept',
+      'node hooks/post.mjs',
+      'skipped',
+    ]);
+    for (const index of [1, 3, 4]) {
+      (rows[index].querySelector('input') as HTMLInputElement).click();
+    }
+    fixture.detectChanges();
+    const field = dialog.querySelector('[data-testid="create-branch"]');
+    field.value = 'notes';
+    field.dispatchEvent(new Event('input'));
+    fixture.detectChanges();
+    dialog.querySelector('[data-testid="confirm-create-worktree"]').click();
+    const checkout = join(repoPath, '.workspaces', 'notes');
+    await untilVisible(fixture, () => existsSync(checkout) && existsSync(commandLog) && existsSync(keptPlugin));
+
+    expect(readFileSync(commandLog, 'utf8')).toBe('ran\n');
+    expect(readFileSync(keptPlugin, 'utf8')).toBe('kept\n');
+    expect(existsSync(postLog)).toBe(false);
+    expect(existsSync(skippedPlugin)).toBe(false);
+    expect(git(checkout, ['branch', '--show-current'])).toBe('notes');
+  });
+
   it('omits branches deleted on the remote from create worktree and still offers a local branch', async () => {
     const repoPath = createRepositoryWithDeletedRemoteBranches(roots);
     const fixture = await renderRepository(repoPath);
