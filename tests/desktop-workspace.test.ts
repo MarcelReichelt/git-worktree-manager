@@ -3453,6 +3453,190 @@ describe('desktop workspace', () => {
     expect(git(checkout, ['branch', '--show-current'])).toBe('notes');
   });
 
+  it('stops create when a checked pre-create hook fails and skips an unchecked one', async () => {
+    const repoPath = createEmptyRepository(roots);
+    git(repoPath, ['branch', 'notes']);
+    mkdirSync(join(repoPath, 'hooks'), { recursive: true });
+    const ran = join(repoPath, 'ran.txt');
+    const skipped = join(repoPath, 'skipped.txt');
+    writeFileSync(
+      join(repoPath, 'hooks', 'ran.mjs'),
+      `import { writeFileSync } from 'node:fs';\nwriteFileSync(${JSON.stringify(ran)}, 'ran\\n');\n`,
+    );
+    writeFileSync(join(repoPath, 'hooks', 'fail.mjs'), 'process.exit(1);\n');
+    writeFileSync(
+      join(repoPath, 'hooks', 'skipped.mjs'),
+      `import { writeFileSync } from 'node:fs';\nwriteFileSync(${JSON.stringify(skipped)}, 'skipped\\n');\n`,
+    );
+    mkdirSync(join(repoPath, '.git-worktree-manager'), { recursive: true });
+    writeFileSync(
+      join(repoPath, '.git-worktree-manager', 'config.toml'),
+      [
+        '[hooks.pre_worktree_create]',
+        'commands = ["node hooks/ran.mjs", "node hooks/fail.mjs", "node hooks/skipped.mjs"]',
+        '',
+      ].join('\n'),
+    );
+    process.env.GIT_WORKTREE_MANAGER_REGISTRY_PATH = join(repoPath, '..', 'registry.db');
+    addRepository(repoPath, 'Harbor');
+    const worktreesBefore = git(repoPath, ['worktree', 'list']);
+    const fixture = await renderRepository(repoPath);
+
+    fixture.nativeElement.querySelector('[data-testid="create-worktree"]').click();
+    fixture.detectChanges();
+    const dialog = fixture.nativeElement.querySelector('[data-testid="create-worktree-dialog"]');
+    const rows = [...dialog.querySelectorAll('[data-testid="create-hook"]')];
+    (rows[2].querySelector('input') as HTMLInputElement).click();
+    fixture.detectChanges();
+    const field = dialog.querySelector('[data-testid="create-branch"]');
+    field.value = 'notes';
+    field.dispatchEvent(new Event('input'));
+    fixture.detectChanges();
+    dialog.querySelector('[data-testid="confirm-create-worktree"]').click();
+    await untilVisible(fixture, (root) =>
+      (root.querySelector('[data-testid="create-worktree-dialog"] [data-testid="workspace-error"]')?.textContent ?? '') !== '',
+    );
+
+    expect(dialog.querySelector('[data-testid="workspace-error"]').textContent.trim()).not.toBe('');
+    expect(existsSync(ran)).toBe(true);
+    expect(existsSync(skipped)).toBe(false);
+    expect(existsSync(join(repoPath, '.workspaces', 'notes'))).toBe(false);
+    expect(git(repoPath, ['worktree', 'list'])).toBe(worktreesBefore);
+  });
+
+  it('creates the worktree when an aborting pre-create plugin is unchecked', async () => {
+    const repoPath = createEmptyRepository(roots);
+    git(repoPath, ['branch', 'notes']);
+    mkdirSync(join(repoPath, 'plugins'), { recursive: true });
+    writeFileSync(
+      join(repoPath, 'plugins', 'abort.ts'),
+      [
+        'export default {',
+        "  name: 'abort-create',",
+        "  preWorktreeCreate(): 'abort' {",
+        "    return 'abort';",
+        '  },',
+        '};',
+        '',
+      ].join('\n'),
+    );
+    mkdirSync(join(repoPath, '.git-worktree-manager'), { recursive: true });
+    writeFileSync(
+      join(repoPath, '.git-worktree-manager', 'config.toml'),
+      '[hooks]\nmodules = ["plugins/abort.ts"]\n',
+    );
+    process.env.GIT_WORKTREE_MANAGER_REGISTRY_PATH = join(repoPath, '..', 'registry.db');
+    addRepository(repoPath, 'Harbor');
+    const fixture = await renderRepository(repoPath);
+
+    fixture.nativeElement.querySelector('[data-testid="create-worktree"]').click();
+    fixture.detectChanges();
+    const dialog = fixture.nativeElement.querySelector('[data-testid="create-worktree-dialog"]');
+    const row = dialog.querySelector('[data-testid="create-hook"]');
+    expect(row.textContent.trim()).toBe('abort-create');
+    (row.querySelector('input') as HTMLInputElement).click();
+    fixture.detectChanges();
+    const field = dialog.querySelector('[data-testid="create-branch"]');
+    field.value = 'notes';
+    field.dispatchEvent(new Event('input'));
+    fixture.detectChanges();
+    dialog.querySelector('[data-testid="confirm-create-worktree"]').click();
+    const checkout = join(repoPath, '.workspaces', 'notes');
+    await untilVisible(fixture, (root) => root.querySelector('[data-testid="create-worktree-dialog"]') === null);
+
+    expect(existsSync(checkout)).toBe(true);
+    expect(git(checkout, ['branch', '--show-current'])).toBe('notes');
+  });
+
+  it('copies configured files when every create hook is unchecked', async () => {
+    const repoPath = createEmptyRepository(roots);
+    writeFileSync(join(repoPath, '.env'), 'SECRET=1\n');
+    git(repoPath, ['branch', 'notes']);
+    mkdirSync(join(repoPath, 'hooks'), { recursive: true });
+    const hookLog = join(repoPath, 'hook-ran.txt');
+    writeFileSync(
+      join(repoPath, 'hooks', 'mark.mjs'),
+      `import { writeFileSync } from 'node:fs';\nwriteFileSync(${JSON.stringify(hookLog)}, 'ran\\n');\n`,
+    );
+    mkdirSync(join(repoPath, '.git-worktree-manager'), { recursive: true });
+    writeFileSync(
+      join(repoPath, '.git-worktree-manager', 'config.toml'),
+      ['[copy]', 'files = [".env"]', '', '[hooks.post_worktree_create]', 'commands = ["node hooks/mark.mjs"]', ''].join(
+        '\n',
+      ),
+    );
+    process.env.GIT_WORKTREE_MANAGER_REGISTRY_PATH = join(repoPath, '..', 'registry.db');
+    addRepository(repoPath, 'Harbor');
+    const fixture = await renderRepository(repoPath);
+
+    fixture.nativeElement.querySelector('[data-testid="create-worktree"]').click();
+    fixture.detectChanges();
+    const dialog = fixture.nativeElement.querySelector('[data-testid="create-worktree-dialog"]');
+    (dialog.querySelector('[data-testid="create-hook"] input') as HTMLInputElement).click();
+    fixture.detectChanges();
+    const field = dialog.querySelector('[data-testid="create-branch"]');
+    field.value = 'notes';
+    field.dispatchEvent(new Event('input'));
+    fixture.detectChanges();
+    dialog.querySelector('[data-testid="confirm-create-worktree"]').click();
+    const copied = join(repoPath, '.workspaces', 'notes', '.env');
+    await untilVisible(fixture, () => existsSync(copied));
+
+    expect(readFileSync(copied, 'utf8')).toBe('SECRET=1\n');
+    expect(existsSync(hookLog)).toBe(false);
+  });
+
+  it('fetches a remote-only branch when the pre-create hook is unchecked', async () => {
+    const repoPath = createEmptyRepository(roots);
+    const root = join(repoPath, '..');
+    const remotePath = join(root, 'origin.git');
+    const otherPath = join(root, 'other');
+    execFileSync('git', ['init', '--bare', '-b', 'master', remotePath], { stdio: 'ignore' });
+    git(repoPath, ['remote', 'add', 'origin', remotePath]);
+    git(repoPath, ['push', '-u', 'origin', 'master']);
+    execFileSync('git', ['clone', remotePath, otherPath], { stdio: 'ignore' });
+    git(otherPath, ['config', 'user.name', 'git-worktree-manager test']);
+    git(otherPath, ['config', 'user.email', 'test@git-worktree-manager.local']);
+    git(otherPath, ['checkout', '-b', 'feature']);
+    writeFileSync(join(otherPath, 'feature.txt'), 'from remote\n');
+    git(otherPath, ['add', 'feature.txt']);
+    git(otherPath, ['commit', '-m', 'add feature']);
+    git(otherPath, ['push', '-u', 'origin', 'feature']);
+    mkdirSync(join(repoPath, 'hooks'), { recursive: true });
+    const hookLog = join(repoPath, 'hook-ran.txt');
+    writeFileSync(
+      join(repoPath, 'hooks', 'mark.mjs'),
+      `import { writeFileSync } from 'node:fs';\nwriteFileSync(${JSON.stringify(hookLog)}, 'ran\\n');\n`,
+    );
+    mkdirSync(join(repoPath, '.git-worktree-manager'), { recursive: true });
+    writeFileSync(
+      join(repoPath, '.git-worktree-manager', 'config.toml'),
+      '[hooks.pre_worktree_create]\ncommands = ["node hooks/mark.mjs"]\n',
+    );
+    expect(hasRef(repoPath, 'refs/remotes/origin/feature')).toBe(false);
+    process.env.GIT_WORKTREE_MANAGER_REGISTRY_PATH = join(root, 'registry.db');
+    addRepository(repoPath, 'Harbor');
+    const fixture = await renderRepository(repoPath);
+
+    fixture.nativeElement.querySelector('[data-testid="create-worktree"]').click();
+    fixture.detectChanges();
+    const dialog = fixture.nativeElement.querySelector('[data-testid="create-worktree-dialog"]');
+    (dialog.querySelector('[data-testid="create-hook"] input') as HTMLInputElement).click();
+    fixture.detectChanges();
+    const field = dialog.querySelector('[data-testid="create-branch"]');
+    field.value = 'feature';
+    field.dispatchEvent(new Event('input'));
+    fixture.detectChanges();
+    dialog.querySelector('[data-testid="confirm-create-worktree"]').click();
+    const checkout = join(repoPath, '.workspaces', 'feature');
+    await untilVisible(fixture, () => existsSync(join(checkout, 'feature.txt')));
+
+    expect(readFileSync(join(checkout, 'feature.txt'), 'utf8')).toBe('from remote\n');
+    expect(git(checkout, ['rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{upstream}'])).toBe('origin/feature');
+    expect(existsSync(hookLog)).toBe(false);
+    expect(hasRef(repoPath, 'refs/remotes/origin/feature')).toBe(true);
+  });
+
   it('omits branches deleted on the remote from create worktree and still offers a local branch', async () => {
     const repoPath = createRepositoryWithDeletedRemoteBranches(roots);
     const fixture = await renderRepository(repoPath);
