@@ -5207,8 +5207,13 @@ export class WorkspaceComponent implements OnInit, OnDestroy, AfterViewInit, Aft
     this.branchActivity.set({ branch: name, label: 'Removing worktree' });
     const selected = this.selectedBranchName();
     const force = deleteBranch && this.removeForceDelete();
+    const skip = new Set(
+      this.removeHookRows()
+        .filter((row) => !this.removeHookChecked().has(row.id))
+        .map((row) => row.id),
+    );
     this.runWhenPainted(() => {
-      void removeWorktree(repo, name, { deleteBranch, force }).then(
+      void removeWorktree(repo, name, { deleteBranch, force, skip }).then(
         () => {
           this.zone.run(() => {
             if (this.openBranch() === name) {

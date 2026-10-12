@@ -422,8 +422,12 @@ async function runPostPlugins(
 async function runPreRemovePlugins(
   plugins: LoadedPlugin[],
   context: WorktreeRemoveContext,
+  skip?: ReadonlySet<number>,
 ): Promise<void> {
   for (const entry of plugins) {
+    if (skip?.has(entry.moduleIndex)) {
+      continue;
+    }
     const result = await entry.plugin.preWorktreeRemove?.(context);
     if (result === 'abort') {
       throw new Error(`${entry.plugin.name} aborted worktree remove`);
@@ -434,8 +438,12 @@ async function runPreRemovePlugins(
 async function runPostRemovePlugins(
   plugins: LoadedPlugin[],
   context: WorktreeRemoveContext,
+  skip?: ReadonlySet<number>,
 ): Promise<void> {
   for (const entry of plugins) {
+    if (skip?.has(entry.moduleIndex)) {
+      continue;
+    }
     await entry.plugin.postWorktreeRemove?.(context);
   }
 }
@@ -595,7 +603,7 @@ export async function createWorktree(
 export async function removeWorktree(
   repoQuery: string,
   branch: string,
-  options: { deleteBranch: boolean; force?: boolean },
+  options: { deleteBranch: boolean; force?: boolean; skip?: ReadonlySet<string> },
 ): Promise<void> {
   const { repoPath, checkout } = removableCheckout(repoQuery, branch);
   const config = readRepoConfig(repoPath);
@@ -606,8 +614,14 @@ export async function removeWorktree(
     deleteBranch: options.deleteBranch,
   };
   const plugins = await loadPlugins(repoPath, config.hooks?.modules);
-  runHookCommands(repoPath, config.hooks?.pre_worktree_remove?.commands, context);
-  await runPreRemovePlugins(plugins, context);
+  const skip = options.skip;
+  runHookCommands(
+    repoPath,
+    config.hooks?.pre_worktree_remove?.commands,
+    context,
+    skippedHookIndexes(skip, 'pre-command'),
+  );
+  await runPreRemovePlugins(plugins, context, skippedHookIndexes(skip, 'pre-plugin'));
   const removeArgs = ['worktree', 'remove'];
   if (options.force) {
     removeArgs.push('--force');
@@ -618,6 +632,11 @@ export async function removeWorktree(
     runGit(repoPath, ['branch', '-D', branch]);
   }
   unpinWorktree(repoPath, branch);
-  runHookCommands(repoPath, config.hooks?.post_worktree_remove?.commands, context);
-  await runPostRemovePlugins(plugins, context);
+  runHookCommands(
+    repoPath,
+    config.hooks?.post_worktree_remove?.commands,
+    context,
+    skippedHookIndexes(skip, 'post-command'),
+  );
+  await runPostRemovePlugins(plugins, context, skippedHookIndexes(skip, 'post-plugin'));
 }
