@@ -73,9 +73,12 @@ export interface CreateHookRow {
 
 export function listCreateHooks(repoPath: string): CreateHookRow[] {
   const config = readRepoConfig(repoPath);
+  const loaded = loadListedPlugins(repoPath, config.hooks?.modules);
   return [
     ...createCommandRows('pre', 'pre-command', config.hooks?.pre_worktree_create?.commands),
+    ...createPluginRows('pre', 'pre-plugin', loaded, 'preWorktreeCreate'),
     ...createCommandRows('post', 'post-command', config.hooks?.post_worktree_create?.commands),
+    ...createPluginRows('post', 'post-plugin', loaded, 'postWorktreeCreate'),
   ];
 }
 
@@ -89,6 +92,42 @@ function createCommandRows(
     phase,
     label: command,
   }));
+}
+
+interface ListedPlugin {
+  moduleIndex: number;
+  modulePath: string;
+  plugin: WorktreePlugin;
+}
+
+function loadListedPlugins(repoPath: string, modules: string[] | undefined): ListedPlugin[] {
+  if (!modules || modules.length === 0) {
+    return [];
+  }
+  const jiti = createJiti(join(repoPath, 'package.json'));
+  const plugins: ListedPlugin[] = [];
+  for (const [moduleIndex, modulePath] of modules.entries()) {
+    const loaded = jiti(resolve(repoPath, modulePath)) as WorktreePlugin & {
+      default?: WorktreePlugin;
+    };
+    plugins.push({ moduleIndex, modulePath, plugin: loaded.default ?? loaded });
+  }
+  return plugins;
+}
+
+function createPluginRows(
+  phase: 'pre' | 'post',
+  kind: string,
+  loaded: ListedPlugin[],
+  method: 'preWorktreeCreate' | 'postWorktreeCreate',
+): CreateHookRow[] {
+  return loaded
+    .filter((entry) => typeof entry.plugin[method] === 'function')
+    .map((entry) => ({
+      id: `${kind}:${entry.moduleIndex}`,
+      phase,
+      label: entry.plugin.name,
+    }));
 }
 
 function layoutForCreate(repoPath: string): LayoutMode {
