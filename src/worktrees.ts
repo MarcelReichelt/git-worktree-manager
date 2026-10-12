@@ -65,6 +65,117 @@ function readRepoConfig(repoPath: string): RepoConfig {
   return TOML.parse(readFileSync(configPath, 'utf8')) as RepoConfig;
 }
 
+export interface CreateHookRow {
+  id: string;
+  phase: 'pre' | 'post';
+  label: string;
+}
+
+export interface CreateHookListing {
+  rows: CreateHookRow[];
+  loadErrors: string[];
+}
+
+export function createHookModulePaths(repoPath: string): string[] {
+  return readRepoConfig(repoPath).hooks?.modules ?? [];
+}
+
+export function listCreateHooks(repoPath: string): CreateHookListing {
+  const config = readRepoConfig(repoPath);
+  const { loaded, loadErrors } = loadListedPlugins(repoPath, config.hooks?.modules);
+  return {
+    rows: [
+      ...createCommandRows('pre', 'pre-command', config.hooks?.pre_worktree_create?.commands),
+      ...createPluginRows('pre', 'pre-plugin', loaded, 'preWorktreeCreate'),
+      ...createCommandRows('post', 'post-command', config.hooks?.post_worktree_create?.commands),
+      ...createPluginRows('post', 'post-plugin', loaded, 'postWorktreeCreate'),
+    ],
+    loadErrors,
+  };
+}
+
+export function listRemoveHooks(repoPath: string): CreateHookListing {
+  const config = readRepoConfig(repoPath);
+  const { loaded, loadErrors } = loadListedPlugins(repoPath, config.hooks?.modules);
+  return {
+    rows: [
+      ...createCommandRows('pre', 'pre-command', config.hooks?.pre_worktree_remove?.commands),
+      ...createPluginRows('pre', 'pre-plugin', loaded, 'preWorktreeRemove'),
+      ...createCommandRows('post', 'post-command', config.hooks?.post_worktree_remove?.commands),
+      ...createPluginRows('post', 'post-plugin', loaded, 'postWorktreeRemove'),
+    ],
+    loadErrors,
+  };
+}
+
+function createCommandRows(
+  phase: 'pre' | 'post',
+  kind: string,
+  commands: string[] | undefined,
+): CreateHookRow[] {
+  return (commands ?? []).map((command, index) => ({
+    id: `${kind}:${index}`,
+    phase,
+    label: command,
+  }));
+}
+
+interface ListedPlugin {
+  moduleIndex: number;
+  modulePath: string;
+  plugin: WorktreePlugin;
+}
+
+function loadListedPlugins(
+  repoPath: string,
+  modules: string[] | undefined,
+): { loaded: ListedPlugin[]; loadErrors: string[] } {
+  if (!modules || modules.length === 0) {
+    return { loaded: [], loadErrors: [] };
+  }
+  const jiti = createJiti(join(repoPath, 'package.json'));
+  const loaded: ListedPlugin[] = [];
+  const loadErrors: string[] = [];
+  for (const [moduleIndex, modulePath] of modules.entries()) {
+    try {
+      const imported = jiti(resolve(repoPath, modulePath)) as WorktreePlugin & {
+        default?: WorktreePlugin;
+      };
+      loaded.push({ moduleIndex, modulePath, plugin: imported.default ?? imported });
+    } catch {
+      loadErrors.push(`Could not load hook module: ${modulePath}`);
+    }
+  }
+  return { loaded, loadErrors };
+}
+
+function createPluginRows(
+  phase: 'pre' | 'post',
+  kind: string,
+  loaded: ListedPlugin[],
+  method: 'preWorktreeCreate' | 'postWorktreeCreate' | 'preWorktreeRemove' | 'postWorktreeRemove',
+): CreateHookRow[] {
+  const peers = loaded.filter((entry) => typeof entry.plugin[method] === 'function');
+  return peers.map((entry) => ({
+    id: `${kind}:${entry.moduleIndex}`,
+    phase,
+    label: createPluginLabel(entry, loaded),
+  }));
+}
+
+function createPluginLabel(entry: ListedPlugin, loaded: ListedPlugin[]): string {
+  const name = pluginName(entry.plugin);
+  if (name === '') {
+    return entry.modulePath;
+  }
+  const sameName = loaded.filter((plugin) => pluginName(plugin.plugin) === name);
+  return sameName.length > 1 ? entry.modulePath : name;
+}
+
+function pluginName(plugin: WorktreePlugin): string {
+  return typeof plugin.name === 'string' ? plugin.name.trim() : '';
+}
+
 function layoutForCreate(repoPath: string): LayoutMode {
   const layout = createLayoutForRepository(repoPath);
   if (!layout.supported) {
@@ -214,8 +325,12 @@ function runHookCommands(
   repoPath: string,
   commands: string[] | undefined,
   context: HookContext,
+  skip?: ReadonlySet<number>,
 ): void {
-  for (const command of commands ?? []) {
+  for (const [index, command] of (commands ?? []).entries()) {
+    if (skip?.has(index)) {
+      continue;
+    }
     execSync(command, {
       cwd: repoPath,
       stdio: 'inherit',
@@ -224,65 +339,112 @@ function runHookCommands(
   }
 }
 
+interface LoadedPlugin {
+  moduleIndex: number;
+  plugin: WorktreePlugin;
+}
+
 async function loadPlugins(
   repoPath: string,
   modules: string[] | undefined,
-): Promise<WorktreePlugin[]> {
+  options?: { createLoadError?: boolean },
+): Promise<LoadedPlugin[]> {
   if (!modules || modules.length === 0) {
     return [];
   }
   const jiti = createJiti(join(repoPath, 'package.json'));
-  const plugins: WorktreePlugin[] = [];
-  for (const modulePath of modules) {
-    // jiti.import() uses dynamic import(). The desktop window is a classic
-    // script, so that import tries to fetch node builtins such as node:fs.
-    const loaded = jiti(resolve(repoPath, modulePath)) as WorktreePlugin & {
-      default?: WorktreePlugin;
-    };
-    plugins.push(loaded.default ?? loaded);
+  const plugins: LoadedPlugin[] = [];
+  for (const [moduleIndex, modulePath] of modules.entries()) {
+    try {
+      // jiti.import() uses dynamic import(). The desktop window is a classic
+      // script, so that import tries to fetch node builtins such as node:fs.
+      const loaded = jiti(resolve(repoPath, modulePath)) as WorktreePlugin & {
+        default?: WorktreePlugin;
+      };
+      plugins.push({ moduleIndex, plugin: loaded.default ?? loaded });
+    } catch (error) {
+      if (options?.createLoadError) {
+        throw new Error(`Could not load hook module: ${modulePath}`);
+      }
+      throw error;
+    }
   }
   return plugins;
 }
 
+function skippedHookIndexes(skip: ReadonlySet<string> | undefined, kind: string): ReadonlySet<number> | undefined {
+  if (!skip || skip.size === 0) {
+    return undefined;
+  }
+  const indexes = new Set<number>();
+  const prefix = `${kind}:`;
+  for (const id of skip) {
+    if (!id.startsWith(prefix)) {
+      continue;
+    }
+    const index = Number(id.slice(prefix.length));
+    if (Number.isInteger(index) && index >= 0) {
+      indexes.add(index);
+    }
+  }
+  return indexes;
+}
+
 async function runPrePlugins(
-  plugins: WorktreePlugin[],
+  plugins: LoadedPlugin[],
   context: WorktreeCreateContext,
+  skip?: ReadonlySet<number>,
 ): Promise<void> {
-  for (const plugin of plugins) {
-    const result = await plugin.preWorktreeCreate?.(context);
+  for (const entry of plugins) {
+    if (skip?.has(entry.moduleIndex)) {
+      continue;
+    }
+    const result = await entry.plugin.preWorktreeCreate?.(context);
     if (result === 'abort') {
-      throw new Error(`${plugin.name} aborted worktree create`);
+      throw new Error(`${entry.plugin.name} aborted worktree create`);
     }
   }
 }
 
 async function runPostPlugins(
-  plugins: WorktreePlugin[],
+  plugins: LoadedPlugin[],
   context: WorktreeCreateContext,
+  skip?: ReadonlySet<number>,
 ): Promise<void> {
-  for (const plugin of plugins) {
-    await plugin.postWorktreeCreate?.(context);
+  for (const entry of plugins) {
+    if (skip?.has(entry.moduleIndex)) {
+      continue;
+    }
+    await entry.plugin.postWorktreeCreate?.(context);
   }
 }
 
 async function runPreRemovePlugins(
-  plugins: WorktreePlugin[],
+  plugins: LoadedPlugin[],
   context: WorktreeRemoveContext,
+  skip?: ReadonlySet<number>,
 ): Promise<void> {
-  for (const plugin of plugins) {
-    const result = await plugin.preWorktreeRemove?.(context);
+  for (const entry of plugins) {
+    if (skip?.has(entry.moduleIndex)) {
+      continue;
+    }
+    const result = await entry.plugin.preWorktreeRemove?.(context);
     if (result === 'abort') {
-      throw new Error(`${plugin.name} aborted worktree remove`);
+      throw new Error(`${entry.plugin.name} aborted worktree remove`);
     }
   }
 }
 
 async function runPostRemovePlugins(
-  plugins: WorktreePlugin[],
+  plugins: LoadedPlugin[],
   context: WorktreeRemoveContext,
+  skip?: ReadonlySet<number>,
 ): Promise<void> {
-  for (const plugin of plugins) {
-    await plugin.postWorktreeRemove?.(context);
+  for (const entry of plugins) {
+    if (skip?.has(entry.moduleIndex)) {
+      continue;
+    }
+    await entry.plugin.postWorktreeRemove?.(context);
   }
 }
 
@@ -369,7 +531,16 @@ function checkoutPath(repositoryPath: string, layout: LayoutMode, folder: string
   return join(repositoryPath, '.workspaces', folder);
 }
 
-export async function createWorktree(repoQuery: string, branch: string): Promise<string> {
+interface CreateWorktreeOptions {
+  skip?: ReadonlySet<string>;
+  createLoadError?: boolean;
+}
+
+export async function createWorktree(
+  repoQuery: string,
+  branch: string,
+  options?: CreateWorktreeOptions,
+): Promise<string> {
   const repository = findRepository(repoQuery);
   if (!repository) {
     throw new Error(`Repository not found: ${repoQuery}`);
@@ -392,9 +563,17 @@ export async function createWorktree(repoQuery: string, branch: string): Promise
     branchSource: worktreeBranchSource(mode),
   };
 
-  const plugins = await loadPlugins(repository.path, config.hooks?.modules);
-  runHookCommands(repository.path, config.hooks?.pre_worktree_create?.commands, context);
-  await runPrePlugins(plugins, context);
+  const plugins = await loadPlugins(repository.path, config.hooks?.modules, {
+    createLoadError: options?.createLoadError === true,
+  });
+  const skip = options?.skip;
+  runHookCommands(
+    repository.path,
+    config.hooks?.pre_worktree_create?.commands,
+    context,
+    skippedHookIndexes(skip, 'pre-command'),
+  );
+  await runPrePlugins(plugins, context, skippedHookIndexes(skip, 'pre-plugin'));
 
   mkdirSync(dirname(checkout), { recursive: true });
   if (mode === 'local') {
@@ -414,15 +593,25 @@ export async function createWorktree(repoQuery: string, branch: string): Promise
   }
 
   copyConfiguredFiles(repository.path, checkout, config.copy?.files);
-  runHookCommands(repository.path, config.hooks?.post_worktree_create?.commands, context);
-  await runPostPlugins(plugins, context);
+  runHookCommands(
+    repository.path,
+    config.hooks?.post_worktree_create?.commands,
+    context,
+    skippedHookIndexes(skip, 'post-command'),
+  );
+  await runPostPlugins(plugins, context, skippedHookIndexes(skip, 'post-plugin'));
   return checkout;
 }
 
 export async function removeWorktree(
   repoQuery: string,
   branch: string,
-  options: { deleteBranch: boolean; force?: boolean },
+  options: {
+    deleteBranch: boolean;
+    force?: boolean;
+    skip?: ReadonlySet<string>;
+    createLoadError?: boolean;
+  },
 ): Promise<void> {
   const { repoPath, checkout } = removableCheckout(repoQuery, branch);
   const config = readRepoConfig(repoPath);
@@ -432,9 +621,17 @@ export async function removeWorktree(
     repositoryPath: repoPath,
     deleteBranch: options.deleteBranch,
   };
-  const plugins = await loadPlugins(repoPath, config.hooks?.modules);
-  runHookCommands(repoPath, config.hooks?.pre_worktree_remove?.commands, context);
-  await runPreRemovePlugins(plugins, context);
+  const plugins = await loadPlugins(repoPath, config.hooks?.modules, {
+    createLoadError: options.createLoadError === true,
+  });
+  const skip = options.skip;
+  runHookCommands(
+    repoPath,
+    config.hooks?.pre_worktree_remove?.commands,
+    context,
+    skippedHookIndexes(skip, 'pre-command'),
+  );
+  await runPreRemovePlugins(plugins, context, skippedHookIndexes(skip, 'pre-plugin'));
   const removeArgs = ['worktree', 'remove'];
   if (options.force) {
     removeArgs.push('--force');
@@ -445,6 +642,11 @@ export async function removeWorktree(
     runGit(repoPath, ['branch', '-D', branch]);
   }
   unpinWorktree(repoPath, branch);
-  runHookCommands(repoPath, config.hooks?.post_worktree_remove?.commands, context);
-  await runPostRemovePlugins(plugins, context);
+  runHookCommands(
+    repoPath,
+    config.hooks?.post_worktree_remove?.commands,
+    context,
+    skippedHookIndexes(skip, 'post-command'),
+  );
+  await runPostRemovePlugins(plugins, context, skippedHookIndexes(skip, 'post-plugin'));
 }

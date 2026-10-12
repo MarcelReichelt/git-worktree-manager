@@ -55,7 +55,16 @@ import {
   type TerminalMode,
 } from '../app-settings.js';
 import { pushBranch } from '../push.js';
-import { createWorktree, findCheckout, removeWorktree } from '../worktrees.js';
+import {
+  createHookModulePaths,
+  createWorktree,
+  findCheckout,
+  listCreateHooks,
+  listRemoveHooks,
+  removeWorktree,
+  type CreateHookListing,
+  type CreateHookRow,
+} from '../worktrees.js';
 import {
   contentSwatches,
   sidebarSwatches,
@@ -552,12 +561,35 @@ button, input { font: inherit; color: inherit; }
 }
 
 [data-testid='create-worktree-dialog'] h2 {
+  display: flex;
+  align-items: center;
+  gap: 6px;
   margin-bottom: 4px;
   color: var(--forest);
   font-family: "Space Grotesk", sans-serif;
   font-size: 20px;
   font-weight: 600;
   letter-spacing: -0.02em;
+}
+
+[data-testid='create-worktree-info'],
+[data-testid='remove-worktree-info'] {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  flex: none;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--forest);
+  cursor: help;
+}
+
+[data-testid='create-worktree-info'] svg,
+[data-testid='remove-worktree-info'] svg {
+  display: block;
 }
 
 [data-testid='create-worktree-dialog'] label,
@@ -609,13 +641,66 @@ button, input { font: inherit; color: inherit; }
   border-color: var(--forest);
 }
 
-[data-testid='create-layout'],
-[data-testid='create-worktree-note'] {
+[data-testid='create-layout'] {
   margin: 0;
   color: var(--grid);
   font-family: "JetBrains Mono", ui-monospace, monospace;
   font-size: 12px;
   line-height: 1.4;
+}
+
+[data-testid='create-worktree-dialog'] [data-testid='create-hook'] {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  color: var(--grid);
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: 12px;
+  font-weight: 400;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+[data-testid='loading-hooks'],
+[data-testid='create-hook-load-error'],
+[data-testid='remove-hook-load-error'] {
+  margin: 0;
+  color: var(--grid);
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+[data-testid='create-hook-load-error'],
+[data-testid='remove-hook-load-error'] {
+  color: var(--coral);
+}
+
+[data-testid='create-hook-phase'],
+[data-testid='remove-hook-phase'] {
+  margin: 8px 0 0;
+  color: var(--forest);
+  font-family: "Space Grotesk", sans-serif;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+[data-testid='remove-worktree-dialog'] [data-testid='remove-hook'] {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  color: var(--grid);
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: 12px;
+  font-weight: 400;
+  letter-spacing: 0;
+  text-transform: none;
 }
 
 [data-testid='create-branch-options'] {
@@ -680,6 +765,12 @@ button, input { font: inherit; color: inherit; }
   font-size: 20px;
   font-weight: 600;
   letter-spacing: -0.02em;
+}
+
+[data-testid='remove-worktree-dialog'] h2 {
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }
 
 [data-testid='merge-into-master-dialog'] label {
@@ -1852,8 +1943,8 @@ button, input { font: inherit; color: inherit; }
     }
     @if (createDialogOpen()) {
       <div data-testid="create-worktree-dialog" role="dialog" aria-label="Create worktree" (click)="dismissCreateFromBackdrop($event)">
-        <section class="dialog-panel" gmOverlayScroll [attr.aria-busy]="branchNamesLoading() || creatingWorktree() ? true : null" (click)="$event.stopPropagation()">
-          <h2>Create worktree</h2>
+        <section class="dialog-panel" gmOverlayScroll [attr.aria-busy]="branchNamesLoading() || createHooksLoading() || creatingWorktree() ? true : null" (click)="$event.stopPropagation()">
+          <h2>Create worktree<button type="button" data-testid="create-worktree-info" title="A new name creates a local branch from the primary checkout, with no upstream. A remote-only branch is fetched first. Pre-create hooks run before the worktree is added. Post-create hooks run after checkout." aria-label="About creating a worktree"><svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><circle cx="8" cy="8" r="6.25" fill="none" stroke="currentColor" stroke-width="1.5"></circle><path fill="currentColor" d="M7.2 7.1h1.6V12H7.2zM7.2 4.2h1.6v1.6H7.2z"></path></svg></button></h2>
           <label>
             New branch
             <input
@@ -1891,14 +1982,38 @@ button, input { font: inherit; color: inherit; }
             </div>
           }
           <p data-testid="create-layout">{{ createLayoutLine() }}</p>
-          <p data-testid="create-worktree-note">
-            A new name creates a local branch from the primary checkout, with no upstream. A remote-only branch is fetched first. Pre-create hooks run before the worktree is added. Post-create hooks run after checkout.
-          </p>
+          @if (createHooksLoading()) {
+            <p data-testid="loading-hooks">Loading hooks</p>
+          } @else if (preCreateHooks().length > 0 || postCreateHooks().length > 0) {
+            <div data-testid="create-hooks">
+              @if (preCreateHooks().length > 0) {
+                <h3 data-testid="create-hook-phase">Pre-create</h3>
+                @for (hook of preCreateHooks(); track hook.id) {
+                  <label data-testid="create-hook">
+                    <input type="checkbox" [checked]="createHookChecked().has(hook.id)" (change)="setCreateHookIncluded(hook.id, $event)" />
+                    {{ hook.label }}
+                  </label>
+                }
+              }
+              @if (postCreateHooks().length > 0) {
+                <h3 data-testid="create-hook-phase">Post-create</h3>
+                @for (hook of postCreateHooks(); track hook.id) {
+                  <label data-testid="create-hook">
+                    <input type="checkbox" [checked]="createHookChecked().has(hook.id)" (change)="setCreateHookIncluded(hook.id, $event)" />
+                    {{ hook.label }}
+                  </label>
+                }
+              }
+            </div>
+          }
           @if (workspaceError(); as message) {
             <p data-testid="workspace-error">{{ message }}</p>
           }
+          @for (line of createHookLoadErrors(); track $index) {
+            <p data-testid="create-hook-load-error">{{ line }}</p>
+          }
           <div class="dialog-actions">
-            <button type="button" data-testid="confirm-create-worktree" [disabled]="branchNamesLoading()" (click)="createBranch()">{{ creatingWorktree() ? 'Creating worktree' : 'Create worktree' }}</button>
+            <button type="button" data-testid="confirm-create-worktree" [disabled]="branchNamesLoading() || createHooksLoading()" (click)="createBranch()">{{ creatingWorktree() ? 'Creating worktree' : 'Create worktree' }}</button>
             <button type="button" data-testid="cancel-create-worktree" (click)="cancelCreate()">Cancel</button>
           </div>
         </section>
@@ -1933,20 +2048,47 @@ button, input { font: inherit; color: inherit; }
     @if (removeDialogBranch(); as branch) {
       <div data-testid="remove-worktree-dialog" role="dialog" aria-label="Remove worktree" (click)="dismissRemoveFromBackdrop($event)">
         <section class="dialog-panel" gmOverlayScroll (click)="$event.stopPropagation()">
-          <h2>Remove worktree</h2>
+          <h2>Remove worktree<button type="button" data-testid="remove-worktree-info" title="Pre-remove hooks run before the checkout is deleted. Post-remove hooks run after." aria-label="About removing a worktree"><svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><circle cx="8" cy="8" r="6.25" fill="none" stroke="currentColor" stroke-width="1.5"></circle><path fill="currentColor" d="M7.2 7.1h1.6V12H7.2zM7.2 4.2h1.6v1.6H7.2z"></path></svg></button></h2>
           @if (branchActivity()?.label === 'Removing worktree') {
             <p data-testid="remove-activity">Removing worktree</p>
           }
           <p data-testid="remove-worktree-branch">{{ branch }}</p>
           <p data-testid="remove-worktree-note">
-            The checkout goes away. Keep the local branch, or delete it. A remote branch stays. Deleting the local branch removes it even when it is not merged. Pre-remove hooks run before the checkout is deleted. Post-remove hooks run after.
+            The checkout goes away. Keep the local branch, or delete it. A remote branch stays. Deleting the local branch removes it even when it is not merged.
           </p>
+          @if (removeHooksLoading()) {
+            <p data-testid="loading-hooks">Loading hooks</p>
+          } @else if (preRemoveHooks().length > 0 || postRemoveHooks().length > 0) {
+            <div data-testid="remove-hooks">
+              @if (preRemoveHooks().length > 0) {
+                <h3 data-testid="remove-hook-phase">Pre-remove</h3>
+                @for (hook of preRemoveHooks(); track hook.id) {
+                  <label data-testid="remove-hook">
+                    <input type="checkbox" [checked]="removeHookChecked().has(hook.id)" (change)="setRemoveHookIncluded(hook.id, $event)" />
+                    {{ hook.label }}
+                  </label>
+                }
+              }
+              @if (postRemoveHooks().length > 0) {
+                <h3 data-testid="remove-hook-phase">Post-remove</h3>
+                @for (hook of postRemoveHooks(); track hook.id) {
+                  <label data-testid="remove-hook">
+                    <input type="checkbox" [checked]="removeHookChecked().has(hook.id)" (change)="setRemoveHookIncluded(hook.id, $event)" />
+                    {{ hook.label }}
+                  </label>
+                }
+              }
+            </div>
+          }
           @if (workspaceError(); as message) {
             <p data-testid="workspace-error">{{ message }}</p>
           }
+          @for (line of removeHookLoadErrors(); track $index) {
+            <p data-testid="remove-hook-load-error">{{ line }}</p>
+          }
           <div class="dialog-actions">
-            <button type="button" data-testid="confirm-remove-worktree" [disabled]="branchActivity()?.label === 'Removing worktree'" (click)="confirmRemoveWorktree(false)">Keep branch</button>
-            <button type="button" data-testid="confirm-delete-branch" [class.is-danger]="removeForceDelete()" [disabled]="branchActivity()?.label === 'Removing worktree'" (click)="confirmRemoveWorktree(true)">{{ removeForceDelete() ? 'Force delete branch' : 'Delete local branch' }}</button>
+            <button type="button" data-testid="confirm-remove-worktree" [disabled]="branchActivity()?.label === 'Removing worktree' || removeHooksLoading()" (click)="confirmRemoveWorktree(false)">Keep branch</button>
+            <button type="button" data-testid="confirm-delete-branch" [class.is-danger]="removeForceDelete()" [disabled]="branchActivity()?.label === 'Removing worktree' || removeHooksLoading()" (click)="confirmRemoveWorktree(true)">{{ removeForceDelete() ? 'Force delete branch' : 'Delete local branch' }}</button>
             <button type="button" data-testid="cancel-remove-worktree" [disabled]="branchActivity()?.label === 'Removing worktree'" (click)="cancelRemove()">Cancel</button>
           </div>
         </section>
@@ -2466,8 +2608,20 @@ export class WorkspaceComponent implements OnInit, OnDestroy, AfterViewInit, Aft
   readonly createDialogOpen = signal(false);
   readonly createBranchName = signal('');
   readonly createBranchOptions = signal<string[]>([]);
+  readonly createHookRows = signal<CreateHookRow[]>([]);
+  readonly createHookChecked = signal<ReadonlySet<string>>(new Set());
+  readonly createHooksLoading = signal(false);
+  readonly createHookLoadErrors = signal<string[]>([]);
+  readonly preCreateHooks = computed(() => this.createHookRows().filter((row) => row.phase === 'pre'));
+  readonly postCreateHooks = computed(() => this.createHookRows().filter((row) => row.phase === 'post'));
   readonly mergeDialogBranch = signal<string | null>(null);
   readonly removeDialogBranch = signal<string | null>(null);
+  readonly removeHookRows = signal<CreateHookRow[]>([]);
+  readonly removeHookChecked = signal<ReadonlySet<string>>(new Set());
+  readonly removeHooksLoading = signal(false);
+  readonly removeHookLoadErrors = signal<string[]>([]);
+  readonly preRemoveHooks = computed(() => this.removeHookRows().filter((row) => row.phase === 'pre'));
+  readonly postRemoveHooks = computed(() => this.removeHookRows().filter((row) => row.phase === 'post'));
   readonly removeForceDelete = signal(false);
   readonly mergeSquash = signal(false);
   readonly workspaceError = signal<string | null>(null);
@@ -5013,7 +5167,38 @@ export class WorkspaceComponent implements OnInit, OnDestroy, AfterViewInit, Aft
     }
     this.workspaceError.set(null);
     this.removeForceDelete.set(false);
+    const path = this.effectivePath();
+    const modules = path === null ? [] : createHookModulePaths(path);
+    this.removeHooksLoading.set(modules.length > 0);
+    this.replaceRemoveHooks(path === null || modules.length > 0 ? emptyCreateHookListing() : listRemoveHooks(path));
     this.removeDialogBranch.set(name);
+    if (path === null || modules.length === 0) {
+      return;
+    }
+    this.runWhenPainted(() => {
+      this.replaceRemoveHooks(listRemoveHooks(path));
+      this.removeHooksLoading.set(false);
+    });
+  }
+
+  setRemoveHookIncluded(id: string, event: Event): void {
+    const target = event.target;
+    if (!(target instanceof HTMLInputElement)) {
+      return;
+    }
+    const next = new Set(this.removeHookChecked());
+    if (target.checked) {
+      next.add(id);
+    } else {
+      next.delete(id);
+    }
+    this.removeHookChecked.set(next);
+  }
+
+  private replaceRemoveHooks(listing: CreateHookListing): void {
+    this.removeHookRows.set(listing.rows);
+    this.removeHookChecked.set(new Set(listing.rows.map((row) => row.id)));
+    this.removeHookLoadErrors.set(listing.loadErrors);
   }
 
   cancelRemove(): void {
@@ -5022,6 +5207,7 @@ export class WorkspaceComponent implements OnInit, OnDestroy, AfterViewInit, Aft
     }
     this.workspaceError.set(null);
     this.removeForceDelete.set(false);
+    this.removeHooksLoading.set(false);
     this.removeDialogBranch.set(null);
   }
 
@@ -5034,15 +5220,20 @@ export class WorkspaceComponent implements OnInit, OnDestroy, AfterViewInit, Aft
   confirmRemoveWorktree(deleteBranch: boolean): void {
     const name = this.removeDialogBranch();
     const repo = this.effectivePath();
-    if (!name || !repo || this.branchActivity()?.label === 'Removing worktree') {
+    if (!name || !repo || this.branchActivity()?.label === 'Removing worktree' || this.removeHooksLoading()) {
       return;
     }
     this.workspaceError.set(null);
     this.branchActivity.set({ branch: name, label: 'Removing worktree' });
     const selected = this.selectedBranchName();
     const force = deleteBranch && this.removeForceDelete();
+    const skip = new Set(
+      this.removeHookRows()
+        .filter((row) => !this.removeHookChecked().has(row.id))
+        .map((row) => row.id),
+    );
     this.runWhenPainted(() => {
-      void removeWorktree(repo, name, { deleteBranch, force }).then(
+      void removeWorktree(repo, name, { deleteBranch, force, skip, createLoadError: true }).then(
         () => {
           this.zone.run(() => {
             if (this.openBranch() === name) {
@@ -5060,6 +5251,7 @@ export class WorkspaceComponent implements OnInit, OnDestroy, AfterViewInit, Aft
           this.zone.run(() => {
             const message = errorText(error);
             this.branchActivity.set(null);
+            this.removeHookLoadErrors.set([]);
             this.workspaceError.set(message);
             if (deleteBranch && message.toLowerCase().includes('use --force to delete it')) {
               this.removeForceDelete.set(true);
@@ -5080,6 +5272,9 @@ export class WorkspaceComponent implements OnInit, OnDestroy, AfterViewInit, Aft
     this.creatingWorktree.set(false);
     this.createBranchName.set('');
     const path = this.effectivePath();
+    const modules = path === null ? [] : createHookModulePaths(path);
+    this.createHooksLoading.set(modules.length > 0);
+    this.replaceCreateHooks(path === null || modules.length > 0 ? emptyCreateHookListing() : listCreateHooks(path));
     this.createDialogOpen.set(true);
     if (path === null) {
       this.branchNamesLoading.set(false);
@@ -5091,11 +5286,15 @@ export class WorkspaceComponent implements OnInit, OnDestroy, AfterViewInit, Aft
     this.runWhenPainted(() => {
       try {
         this.createBranchOptions.set(listRemoteBranchesWithoutWorktree(path));
-        this.branchNamesLoading.set(false);
       } catch (error) {
-        this.branchNamesLoading.set(false);
         this.workspaceError.set(errorText(error));
       }
+      this.branchNamesLoading.set(false);
+      if (modules.length === 0) {
+        return;
+      }
+      this.replaceCreateHooks(listCreateHooks(path));
+      this.createHooksLoading.set(false);
     });
   }
 
@@ -5103,6 +5302,7 @@ export class WorkspaceComponent implements OnInit, OnDestroy, AfterViewInit, Aft
     this.workspaceError.set(null);
     this.createBranchName.set('');
     this.branchNamesLoading.set(false);
+    this.createHooksLoading.set(false);
     this.creatingWorktree.set(false);
     this.createDialogOpen.set(false);
   }
@@ -5117,13 +5317,33 @@ export class WorkspaceComponent implements OnInit, OnDestroy, AfterViewInit, Aft
     this.createBranchName.set(inputValue(event));
   }
 
+  setCreateHookIncluded(id: string, event: Event): void {
+    const target = event.target;
+    if (!(target instanceof HTMLInputElement)) {
+      return;
+    }
+    const next = new Set(this.createHookChecked());
+    if (target.checked) {
+      next.add(id);
+    } else {
+      next.delete(id);
+    }
+    this.createHookChecked.set(next);
+  }
+
+  private replaceCreateHooks(listing: CreateHookListing): void {
+    this.createHookRows.set(listing.rows);
+    this.createHookChecked.set(new Set(listing.rows.map((row) => row.id)));
+    this.createHookLoadErrors.set(listing.loadErrors);
+  }
+
   chooseCreateBranch(name: string): void {
     this.createBranchName.set(name);
   }
 
   createBranch(): Promise<void> {
     const repo = this.effectivePath();
-    if (!repo || this.creatingWorktree() || this.branchNamesLoading()) {
+    if (!repo || this.creatingWorktree() || this.branchNamesLoading() || this.createHooksLoading()) {
       return Promise.resolve();
     }
     if (this.createBranchName().trim() === '') {
@@ -5135,7 +5355,12 @@ export class WorkspaceComponent implements OnInit, OnDestroy, AfterViewInit, Aft
     this.creatingWorktree.set(true);
     return new Promise((resolve) => {
       this.runWhenPainted(() => {
-        void createWorktree(repo, branchName).then(
+        const skip = new Set(
+          this.createHookRows()
+            .filter((row) => !this.createHookChecked().has(row.id))
+            .map((row) => row.id),
+        );
+        void createWorktree(repo, branchName, { skip, createLoadError: true }).then(
           () => {
             this.zone.run(() => {
               this.refreshBranches([branchName]);
@@ -5148,6 +5373,7 @@ export class WorkspaceComponent implements OnInit, OnDestroy, AfterViewInit, Aft
           (error: unknown) => {
             this.zone.run(() => {
               this.creatingWorktree.set(false);
+              this.createHookLoadErrors.set([]);
               this.workspaceError.set(errorText(error));
               resolve();
             });
@@ -6690,6 +6916,10 @@ function liveQueryFlag(): boolean {
 function inputValue(event: Event): string {
   const target = event.target as { value?: string } | null;
   return target?.value ?? '';
+}
+
+function emptyCreateHookListing(): CreateHookListing {
+  return { rows: [], loadErrors: [] };
 }
 
 function errorText(error: unknown): string {
