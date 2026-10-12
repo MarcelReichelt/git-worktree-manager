@@ -2054,7 +2054,9 @@ button, input { font: inherit; color: inherit; }
           <p data-testid="remove-worktree-note">
             The checkout goes away. Keep the local branch, or delete it. A remote branch stays. Deleting the local branch removes it even when it is not merged.
           </p>
-          @if (preRemoveHooks().length > 0 || postRemoveHooks().length > 0) {
+          @if (removeHooksLoading()) {
+            <p data-testid="loading-hooks">Loading hooks</p>
+          } @else if (preRemoveHooks().length > 0 || postRemoveHooks().length > 0) {
             <div data-testid="remove-hooks">
               @if (preRemoveHooks().length > 0) {
                 <h3 data-testid="remove-hook-phase">Pre-remove</h3>
@@ -2080,8 +2082,8 @@ button, input { font: inherit; color: inherit; }
             <p data-testid="workspace-error">{{ message }}</p>
           }
           <div class="dialog-actions">
-            <button type="button" data-testid="confirm-remove-worktree" [disabled]="branchActivity()?.label === 'Removing worktree'" (click)="confirmRemoveWorktree(false)">Keep branch</button>
-            <button type="button" data-testid="confirm-delete-branch" [class.is-danger]="removeForceDelete()" [disabled]="branchActivity()?.label === 'Removing worktree'" (click)="confirmRemoveWorktree(true)">{{ removeForceDelete() ? 'Force delete branch' : 'Delete local branch' }}</button>
+            <button type="button" data-testid="confirm-remove-worktree" [disabled]="branchActivity()?.label === 'Removing worktree' || removeHooksLoading()" (click)="confirmRemoveWorktree(false)">Keep branch</button>
+            <button type="button" data-testid="confirm-delete-branch" [class.is-danger]="removeForceDelete()" [disabled]="branchActivity()?.label === 'Removing worktree' || removeHooksLoading()" (click)="confirmRemoveWorktree(true)">{{ removeForceDelete() ? 'Force delete branch' : 'Delete local branch' }}</button>
             <button type="button" data-testid="cancel-remove-worktree" [disabled]="branchActivity()?.label === 'Removing worktree'" (click)="cancelRemove()">Cancel</button>
           </div>
         </section>
@@ -2611,6 +2613,7 @@ export class WorkspaceComponent implements OnInit, OnDestroy, AfterViewInit, Aft
   readonly removeDialogBranch = signal<string | null>(null);
   readonly removeHookRows = signal<CreateHookRow[]>([]);
   readonly removeHookChecked = signal<ReadonlySet<string>>(new Set());
+  readonly removeHooksLoading = signal(false);
   readonly preRemoveHooks = computed(() => this.removeHookRows().filter((row) => row.phase === 'pre'));
   readonly postRemoveHooks = computed(() => this.removeHookRows().filter((row) => row.phase === 'post'));
   readonly removeForceDelete = signal(false);
@@ -5159,8 +5162,22 @@ export class WorkspaceComponent implements OnInit, OnDestroy, AfterViewInit, Aft
     this.workspaceError.set(null);
     this.removeForceDelete.set(false);
     const path = this.effectivePath();
-    this.replaceRemoveHooks(path === null ? emptyCreateHookListing() : listRemoveHooks(path));
+    const modules = path === null ? [] : createHookModulePaths(path);
+    this.removeHooksLoading.set(modules.length > 0);
+    this.replaceRemoveHooks(path === null || modules.length > 0 ? emptyCreateHookListing() : listRemoveHooks(path));
     this.removeDialogBranch.set(name);
+    if (path === null || modules.length === 0) {
+      return;
+    }
+    this.runWhenPainted(() => {
+      try {
+        this.replaceRemoveHooks(listRemoveHooks(path));
+      } catch (error) {
+        this.replaceRemoveHooks(emptyCreateHookListing());
+        this.workspaceError.set(errorText(error));
+      }
+      this.removeHooksLoading.set(false);
+    });
   }
 
   setRemoveHookIncluded(id: string, event: Event): void {
@@ -5188,6 +5205,7 @@ export class WorkspaceComponent implements OnInit, OnDestroy, AfterViewInit, Aft
     }
     this.workspaceError.set(null);
     this.removeForceDelete.set(false);
+    this.removeHooksLoading.set(false);
     this.removeDialogBranch.set(null);
   }
 
@@ -5200,7 +5218,7 @@ export class WorkspaceComponent implements OnInit, OnDestroy, AfterViewInit, Aft
   confirmRemoveWorktree(deleteBranch: boolean): void {
     const name = this.removeDialogBranch();
     const repo = this.effectivePath();
-    if (!name || !repo || this.branchActivity()?.label === 'Removing worktree') {
+    if (!name || !repo || this.branchActivity()?.label === 'Removing worktree' || this.removeHooksLoading()) {
       return;
     }
     this.workspaceError.set(null);

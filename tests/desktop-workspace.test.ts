@@ -7149,6 +7149,106 @@ describe('desktop workspace', () => {
     expect(git(repoPath, ['rev-parse', 'refs/heads/feature'])).toBe(branchSha);
   });
 
+  it('shows Loading hooks and disables remove actions while plugin modules load', async () => {
+    const repoPath = createEmptyRepository(roots);
+    git(repoPath, ['branch', 'feature']);
+    const checkout = join(repoPath, '.workspaces', 'feature');
+    git(repoPath, ['worktree', 'add', checkout, 'feature']);
+    mkdirSync(join(repoPath, 'plugins'), { recursive: true });
+    writeFileSync(
+      join(repoPath, 'plugins', 'alpha.ts'),
+      ['export default {', "  name: 'Alpha',", '  preWorktreeRemove() {},', '};', ''].join('\n'),
+    );
+    writeFileSync(
+      join(repoPath, 'plugins', 'beta.ts'),
+      ['export default {', "  name: 'Beta',", '  postWorktreeRemove() {},', '};', ''].join('\n'),
+    );
+    mkdirSync(join(repoPath, '.git-worktree-manager'), { recursive: true });
+    writeFileSync(
+      join(repoPath, '.git-worktree-manager', 'config.toml'),
+      [
+        '[hooks]',
+        'modules = ["plugins/alpha.ts", "plugins/beta.ts"]',
+        '',
+        '[hooks.pre_worktree_remove]',
+        'commands = ["echo pre"]',
+        '',
+      ].join('\n'),
+    );
+    process.env.GIT_WORKTREE_MANAGER_REGISTRY_PATH = join(repoPath, '..', 'registry.db');
+    addRepository(repoPath, 'Harbor');
+    const fixture = await renderRepository(repoPath);
+    const held = holdPaint();
+    try {
+      const row = fixture.nativeElement.querySelector('[data-branch="feature"]');
+      row.querySelector('[data-testid="remove-worktree"]').click();
+      fixture.detectChanges();
+      const dialog = fixture.nativeElement.querySelector('[data-testid="remove-worktree-dialog"]');
+
+      expect(dialog.querySelector('[data-testid="loading-hooks"]').textContent.trim()).toBe('Loading hooks');
+      expect(dialog.querySelector('[data-testid="remove-hook"]')).toBeNull();
+      expect(dialog.querySelector('[data-testid="confirm-remove-worktree"]').disabled).toBe(true);
+      expect(dialog.querySelector('[data-testid="confirm-delete-branch"]').disabled).toBe(true);
+      expect(dialog.querySelector('[data-testid="cancel-remove-worktree"]').disabled).toBe(false);
+      expect(dialog.querySelector('[data-testid="remove-worktree-info"]')).not.toBeNull();
+      expect(dialog.querySelector('[data-testid="remove-worktree-note"]').textContent.trim()).toBe(
+        'The checkout goes away. Keep the local branch, or delete it. A remote branch stays. Deleting the local branch removes it even when it is not merged.',
+      );
+
+      held.release();
+      fixture.detectChanges();
+
+      expect(dialog.querySelector('[data-testid="loading-hooks"]')).toBeNull();
+      expect([...dialog.querySelectorAll('[data-testid="remove-hook"]')].map((hook) => hook.textContent.trim())).toEqual([
+        'echo pre',
+        'Alpha',
+        'Beta',
+      ]);
+      expect(dialog.querySelector('[data-testid="confirm-remove-worktree"]').disabled).toBe(false);
+      expect(dialog.querySelector('[data-testid="confirm-delete-branch"]').disabled).toBe(false);
+      expect(dialog.querySelector('[data-testid="cancel-remove-worktree"]').disabled).toBe(false);
+    } finally {
+      held.release();
+    }
+  });
+
+  it('does not show Loading hooks when remove has no plugin modules', async () => {
+    const repoPath = createEmptyRepository(roots);
+    git(repoPath, ['branch', 'feature']);
+    const checkout = join(repoPath, '.workspaces', 'feature');
+    git(repoPath, ['worktree', 'add', checkout, 'feature']);
+    mkdirSync(join(repoPath, '.git-worktree-manager'), { recursive: true });
+    writeFileSync(
+      join(repoPath, '.git-worktree-manager', 'config.toml'),
+      '[hooks.pre_worktree_remove]\ncommands = ["echo pre", "echo next"]\n',
+    );
+    process.env.GIT_WORKTREE_MANAGER_REGISTRY_PATH = join(repoPath, '..', 'registry.db');
+    addRepository(repoPath, 'Harbor');
+    const fixture = await renderRepository(repoPath);
+    const held = holdPaint();
+    try {
+      const row = fixture.nativeElement.querySelector('[data-branch="feature"]');
+      row.querySelector('[data-testid="remove-worktree"]').click();
+      fixture.detectChanges();
+      const dialog = fixture.nativeElement.querySelector('[data-testid="remove-worktree-dialog"]');
+
+      expect(dialog.querySelector('[data-testid="loading-hooks"]')).toBeNull();
+      expect([...dialog.querySelectorAll('[data-testid="remove-hook"]')].map((hook) => hook.textContent.trim())).toEqual([
+        'echo pre',
+        'echo next',
+      ]);
+      expect(dialog.querySelector('[data-testid="confirm-remove-worktree"]').disabled).toBe(false);
+      expect(dialog.querySelector('[data-testid="confirm-delete-branch"]').disabled).toBe(false);
+      expect(dialog.querySelector('[data-testid="cancel-remove-worktree"]').disabled).toBe(false);
+
+      dialog.querySelector('[data-testid="cancel-remove-worktree"]').click();
+      fixture.detectChanges();
+      expect(fixture.nativeElement.querySelector('[data-testid="remove-worktree-dialog"]')).toBeNull();
+    } finally {
+      held.release();
+    }
+  });
+
   it('reads the registry on the centered card when the live query flag is set', async () => {
     const root = mkdtempSync(join(tmpdir(), 'git-worktree-manager-desktop-'));
     roots.push(root);
