@@ -61,6 +61,7 @@ import {
   findCheckout,
   listCreateHooks,
   removeWorktree,
+  type CreateHookListing,
   type CreateHookRow,
 } from '../worktrees.js';
 import {
@@ -659,12 +660,17 @@ button, input { font: inherit; color: inherit; }
   text-transform: none;
 }
 
-[data-testid='loading-hooks'] {
+[data-testid='loading-hooks'],
+[data-testid='create-hook-load-error'] {
   margin: 0;
   color: var(--grid);
   font-family: "JetBrains Mono", ui-monospace, monospace;
   font-size: 12px;
   line-height: 1.4;
+}
+
+[data-testid='create-hook-load-error'] {
+  color: var(--coral);
 }
 
 [data-testid='create-hook-phase'] {
@@ -1977,6 +1983,9 @@ button, input { font: inherit; color: inherit; }
           @if (workspaceError(); as message) {
             <p data-testid="workspace-error">{{ message }}</p>
           }
+          @for (line of createHookLoadErrors(); track $index) {
+            <p data-testid="create-hook-load-error">{{ line }}</p>
+          }
           <div class="dialog-actions">
             <button type="button" data-testid="confirm-create-worktree" [disabled]="branchNamesLoading() || createHooksLoading()" (click)="createBranch()">{{ creatingWorktree() ? 'Creating worktree' : 'Create worktree' }}</button>
             <button type="button" data-testid="cancel-create-worktree" (click)="cancelCreate()">Cancel</button>
@@ -2549,6 +2558,7 @@ export class WorkspaceComponent implements OnInit, OnDestroy, AfterViewInit, Aft
   readonly createHookRows = signal<CreateHookRow[]>([]);
   readonly createHookChecked = signal<ReadonlySet<string>>(new Set());
   readonly createHooksLoading = signal(false);
+  readonly createHookLoadErrors = signal<string[]>([]);
   readonly preCreateHooks = computed(() => this.createHookRows().filter((row) => row.phase === 'pre'));
   readonly postCreateHooks = computed(() => this.createHookRows().filter((row) => row.phase === 'post'));
   readonly mergeDialogBranch = signal<string | null>(null);
@@ -5167,7 +5177,7 @@ export class WorkspaceComponent implements OnInit, OnDestroy, AfterViewInit, Aft
     const path = this.effectivePath();
     const modules = path === null ? [] : createHookModulePaths(path);
     this.createHooksLoading.set(modules.length > 0);
-    this.replaceCreateHooks(path === null || modules.length > 0 ? [] : listCreateHooks(path));
+    this.replaceCreateHooks(path === null || modules.length > 0 ? emptyCreateHookListing() : listCreateHooks(path));
     this.createDialogOpen.set(true);
     if (path === null) {
       this.branchNamesLoading.set(false);
@@ -5189,7 +5199,7 @@ export class WorkspaceComponent implements OnInit, OnDestroy, AfterViewInit, Aft
       try {
         this.replaceCreateHooks(listCreateHooks(path));
       } catch (error) {
-        this.replaceCreateHooks([]);
+        this.replaceCreateHooks(emptyCreateHookListing());
         this.workspaceError.set(errorText(error));
       }
       this.createHooksLoading.set(false);
@@ -5229,9 +5239,10 @@ export class WorkspaceComponent implements OnInit, OnDestroy, AfterViewInit, Aft
     this.createHookChecked.set(next);
   }
 
-  private replaceCreateHooks(rows: CreateHookRow[]): void {
-    this.createHookRows.set(rows);
-    this.createHookChecked.set(new Set(rows.map((row) => row.id)));
+  private replaceCreateHooks(listing: CreateHookListing): void {
+    this.createHookRows.set(listing.rows);
+    this.createHookChecked.set(new Set(listing.rows.map((row) => row.id)));
+    this.createHookLoadErrors.set(listing.loadErrors);
   }
 
   chooseCreateBranch(name: string): void {
@@ -6812,6 +6823,10 @@ function liveQueryFlag(): boolean {
 function inputValue(event: Event): string {
   const target = event.target as { value?: string } | null;
   return target?.value ?? '';
+}
+
+function emptyCreateHookListing(): CreateHookListing {
+  return { rows: [], loadErrors: [] };
 }
 
 function errorText(error: unknown): string {

@@ -71,19 +71,27 @@ export interface CreateHookRow {
   label: string;
 }
 
+export interface CreateHookListing {
+  rows: CreateHookRow[];
+  loadErrors: string[];
+}
+
 export function createHookModulePaths(repoPath: string): string[] {
   return readRepoConfig(repoPath).hooks?.modules ?? [];
 }
 
-export function listCreateHooks(repoPath: string): CreateHookRow[] {
+export function listCreateHooks(repoPath: string): CreateHookListing {
   const config = readRepoConfig(repoPath);
-  const loaded = loadListedPlugins(repoPath, config.hooks?.modules);
-  return [
-    ...createCommandRows('pre', 'pre-command', config.hooks?.pre_worktree_create?.commands),
-    ...createPluginRows('pre', 'pre-plugin', loaded, 'preWorktreeCreate'),
-    ...createCommandRows('post', 'post-command', config.hooks?.post_worktree_create?.commands),
-    ...createPluginRows('post', 'post-plugin', loaded, 'postWorktreeCreate'),
-  ];
+  const { loaded, loadErrors } = loadListedPlugins(repoPath, config.hooks?.modules);
+  return {
+    rows: [
+      ...createCommandRows('pre', 'pre-command', config.hooks?.pre_worktree_create?.commands),
+      ...createPluginRows('pre', 'pre-plugin', loaded, 'preWorktreeCreate'),
+      ...createCommandRows('post', 'post-command', config.hooks?.post_worktree_create?.commands),
+      ...createPluginRows('post', 'post-plugin', loaded, 'postWorktreeCreate'),
+    ],
+    loadErrors,
+  };
 }
 
 function createCommandRows(
@@ -104,19 +112,27 @@ interface ListedPlugin {
   plugin: WorktreePlugin;
 }
 
-function loadListedPlugins(repoPath: string, modules: string[] | undefined): ListedPlugin[] {
+function loadListedPlugins(
+  repoPath: string,
+  modules: string[] | undefined,
+): { loaded: ListedPlugin[]; loadErrors: string[] } {
   if (!modules || modules.length === 0) {
-    return [];
+    return { loaded: [], loadErrors: [] };
   }
   const jiti = createJiti(join(repoPath, 'package.json'));
-  const plugins: ListedPlugin[] = [];
+  const loaded: ListedPlugin[] = [];
+  const loadErrors: string[] = [];
   for (const [moduleIndex, modulePath] of modules.entries()) {
-    const loaded = jiti(resolve(repoPath, modulePath)) as WorktreePlugin & {
-      default?: WorktreePlugin;
-    };
-    plugins.push({ moduleIndex, modulePath, plugin: loaded.default ?? loaded });
+    try {
+      const imported = jiti(resolve(repoPath, modulePath)) as WorktreePlugin & {
+        default?: WorktreePlugin;
+      };
+      loaded.push({ moduleIndex, modulePath, plugin: imported.default ?? imported });
+    } catch {
+      loadErrors.push(`Could not load hook module: ${modulePath}`);
+    }
   }
-  return plugins;
+  return { loaded, loadErrors };
 }
 
 function createPluginRows(

@@ -1,6 +1,6 @@
 import TOML from '@iarna/toml';
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdtempSync, mkdirSync, readFileSync, readlinkSync, readdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, readlinkSync, readdirSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { type ComponentFixture, TestBed } from '@angular/core/testing';
@@ -3720,6 +3720,81 @@ describe('desktop workspace', () => {
     } finally {
       held.release();
     }
+  });
+
+  it('reports modules that fail to load and omits a plugin with no create method', async () => {
+    const repoPath = createEmptyRepository(roots);
+    mkdirSync(join(repoPath, 'plugins'), { recursive: true });
+    writeFileSync(
+      join(repoPath, 'plugins', 'remove-only.ts'),
+      ['export default {', "  name: 'Remove only',", '  preWorktreeRemove() {},', '};', ''].join('\n'),
+    );
+    writeFileSync(
+      join(repoPath, 'plugins', 'kept.ts'),
+      ['export default {', "  name: 'Kept',", '  preWorktreeCreate() {},', '};', ''].join('\n'),
+    );
+    mkdirSync(join(repoPath, '.git-worktree-manager'), { recursive: true });
+    writeFileSync(
+      join(repoPath, '.git-worktree-manager', 'config.toml'),
+      [
+        '[hooks]',
+        'modules = ["plugins/missing-a.ts", "plugins/remove-only.ts", "plugins/kept.ts", "plugins/missing-b.ts"]',
+        '',
+        '[hooks.pre_worktree_create]',
+        'commands = ["echo pre"]',
+        '',
+      ].join('\n'),
+    );
+    process.env.GIT_WORKTREE_MANAGER_REGISTRY_PATH = join(repoPath, '..', 'registry.db');
+    addRepository(repoPath, 'Harbor');
+    const fixture = await renderRepository(repoPath);
+
+    fixture.nativeElement.querySelector('[data-testid="create-worktree"]').click();
+    fixture.detectChanges();
+
+    const dialog = fixture.nativeElement.querySelector('[data-testid="create-worktree-dialog"]');
+    expect([...dialog.querySelectorAll('[data-testid="create-hook"]')].map((hook) => hook.textContent.trim())).toEqual([
+      'echo pre',
+      'Kept',
+    ]);
+    expect(
+      [...dialog.querySelectorAll('[data-testid="create-hook-load-error"]')].map((line) => line.textContent.trim()),
+    ).toEqual([
+      'Could not load hook module: plugins/missing-a.ts',
+      'Could not load hook module: plugins/missing-b.ts',
+    ]);
+    expect(dialog.textContent).not.toContain('Remove only');
+    expect(dialog.querySelector('[data-testid="workspace-error"]')).toBeNull();
+  });
+
+  it('shows a branch list failure before hook module load errors', async () => {
+    const repoPath = createEmptyRepository(roots);
+    mkdirSync(join(repoPath, '.git-worktree-manager'), { recursive: true });
+    writeFileSync(
+      join(repoPath, '.git-worktree-manager', 'config.toml'),
+      '[hooks]\nmodules = ["plugins/missing-a.ts", "plugins/missing-b.ts"]\n',
+    );
+    process.env.GIT_WORKTREE_MANAGER_REGISTRY_PATH = join(repoPath, '..', 'registry.db');
+    addRepository(repoPath, 'Harbor');
+    const fixture = await renderRepository(repoPath);
+    renameSync(join(repoPath, '.git'), join(repoPath, '.git-hidden'));
+
+    fixture.nativeElement.querySelector('[data-testid="create-worktree"]').click();
+    fixture.detectChanges();
+
+    const dialog = fixture.nativeElement.querySelector('[data-testid="create-worktree-dialog"]');
+    const lines = [
+      ...dialog.querySelectorAll('[data-testid="workspace-error"], [data-testid="create-hook-load-error"]'),
+    ];
+    expect(lines.map((line) => line.getAttribute('data-testid'))).toEqual([
+      'workspace-error',
+      'create-hook-load-error',
+      'create-hook-load-error',
+    ]);
+    expect(lines[0].textContent.trim()).not.toBe('');
+    expect(lines[1].textContent.trim()).toBe('Could not load hook module: plugins/missing-a.ts');
+    expect(lines[2].textContent.trim()).toBe('Could not load hook module: plugins/missing-b.ts');
+    expect(lines[0].compareDocumentPosition(lines[1]) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0);
   });
 
   it('omits branches deleted on the remote from create worktree and still offers a local branch', async () => {
