@@ -571,7 +571,8 @@ button, input { font: inherit; color: inherit; }
   letter-spacing: -0.02em;
 }
 
-[data-testid='create-worktree-info'] {
+[data-testid='create-worktree-info'],
+[data-testid='remove-worktree-info'] {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -585,7 +586,8 @@ button, input { font: inherit; color: inherit; }
   cursor: help;
 }
 
-[data-testid='create-worktree-info'] svg {
+[data-testid='create-worktree-info'] svg,
+[data-testid='remove-worktree-info'] svg {
   display: block;
 }
 
@@ -745,6 +747,12 @@ button, input { font: inherit; color: inherit; }
   font-size: 20px;
   font-weight: 600;
   letter-spacing: -0.02em;
+}
+
+[data-testid='remove-worktree-dialog'] h2 {
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }
 
 [data-testid='merge-into-master-dialog'] label {
@@ -2022,13 +2030,13 @@ button, input { font: inherit; color: inherit; }
     @if (removeDialogBranch(); as branch) {
       <div data-testid="remove-worktree-dialog" role="dialog" aria-label="Remove worktree" (click)="dismissRemoveFromBackdrop($event)">
         <section class="dialog-panel" gmOverlayScroll (click)="$event.stopPropagation()">
-          <h2>Remove worktree</h2>
+          <h2>Remove worktree<button type="button" data-testid="remove-worktree-info" title="Pre-remove hooks run before the checkout is deleted. Post-remove hooks run after." aria-label="About removing a worktree"><svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><circle cx="8" cy="8" r="6.25" fill="none" stroke="currentColor" stroke-width="1.5"></circle><path fill="currentColor" d="M7.2 7.1h1.6V12H7.2zM7.2 4.2h1.6v1.6H7.2z"></path></svg></button></h2>
           @if (branchActivity()?.label === 'Removing worktree') {
             <p data-testid="remove-activity">Removing worktree</p>
           }
           <p data-testid="remove-worktree-branch">{{ branch }}</p>
           <p data-testid="remove-worktree-note">
-            The checkout goes away. Keep the local branch, or delete it. A remote branch stays. Deleting the local branch removes it even when it is not merged. Pre-remove hooks run before the checkout is deleted. Post-remove hooks run after.
+            The checkout goes away. Keep the local branch, or delete it. A remote branch stays. Deleting the local branch removes it even when it is not merged.
           </p>
           @if (workspaceError(); as message) {
             <p data-testid="workspace-error">{{ message }}</p>

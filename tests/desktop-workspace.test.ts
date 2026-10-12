@@ -6442,6 +6442,64 @@ describe('desktop workspace', () => {
     expect(fixture.nativeElement.querySelector('[data-branch="feature"]')).toBeNull();
   });
 
+  it('shows remove hook timing in a tooltip beside the title', async () => {
+    const repoPath = createEmptyRepository(roots);
+    git(repoPath, ['branch', 'feature']);
+    const checkout = join(repoPath, '.workspaces', 'feature');
+    git(repoPath, ['worktree', 'add', checkout, 'feature']);
+    process.env.GIT_WORKTREE_MANAGER_REGISTRY_PATH = join(repoPath, '..', 'registry.db');
+    addRepository(repoPath, 'Harbor');
+    const fixture = await renderRepository(repoPath);
+
+    const row = fixture.nativeElement.querySelector('[data-branch="feature"]');
+    row.querySelector('[data-testid="remove-worktree"]').click();
+    fixture.detectChanges();
+
+    const dialog = fixture.nativeElement.querySelector('[data-testid="remove-worktree-dialog"]');
+    const title = dialog.querySelector('h2');
+    const titleText = [...title.childNodes].find(
+      (node) => node.nodeType === Node.TEXT_NODE && node.textContent?.trim() === 'Remove worktree',
+    );
+    expect(titleText).toBeDefined();
+    let besideTitle = titleText?.nextSibling ?? null;
+    while (besideTitle && besideTitle.nodeType === Node.TEXT_NODE && (besideTitle.textContent ?? '').trim() === '') {
+      besideTitle = besideTitle.nextSibling;
+    }
+    expect(besideTitle).toBeInstanceOf(HTMLButtonElement);
+    const icon = besideTitle as HTMLButtonElement;
+    expect(icon.getAttribute('data-testid')).toBe('remove-worktree-info');
+    expect(icon.querySelector('svg')).not.toBeNull();
+    expect(icon.getAttribute('title')).toBe(
+      'Pre-remove hooks run before the checkout is deleted. Post-remove hooks run after.',
+    );
+  });
+
+  it('keeps the checkout warning on the remove dialog', async () => {
+    const repoPath = createEmptyRepository(roots);
+    git(repoPath, ['branch', 'feature']);
+    const checkout = join(repoPath, '.workspaces', 'feature');
+    git(repoPath, ['worktree', 'add', checkout, 'feature']);
+    process.env.GIT_WORKTREE_MANAGER_REGISTRY_PATH = join(repoPath, '..', 'registry.db');
+    addRepository(repoPath, 'Harbor');
+    const fixture = await renderRepository(repoPath);
+
+    const row = fixture.nativeElement.querySelector('[data-branch="feature"]');
+    row.querySelector('[data-testid="remove-worktree"]').click();
+    fixture.detectChanges();
+
+    const dialog = fixture.nativeElement.querySelector('[data-testid="remove-worktree-dialog"]');
+    const branch = dialog.querySelector('[data-testid="remove-worktree-branch"]');
+    const note = dialog.querySelector('[data-testid="remove-worktree-note"]');
+    expect(branch.textContent.trim()).toBe('feature');
+    expect(note.textContent.trim()).toBe(
+      'The checkout goes away. Keep the local branch, or delete it. A remote branch stays. Deleting the local branch removes it even when it is not merged.',
+    );
+    expect(branch.compareDocumentPosition(note) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0);
+    expect(dialog.querySelector('[data-testid="remove-worktree-info"]').getAttribute('title')).toBe(
+      'Pre-remove hooks run before the checkout is deleted. Post-remove hooks run after.',
+    );
+  });
+
   it('reads the registry on the centered card when the live query flag is set', async () => {
     const root = mkdtempSync(join(tmpdir(), 'git-worktree-manager-desktop-'));
     roots.push(root);
