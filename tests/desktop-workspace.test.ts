@@ -3154,6 +3154,29 @@ describe('desktop workspace', () => {
     expect(dialog.querySelector('[data-testid="create-worktree-info"]')).not.toBeNull();
   });
 
+  it('sizes create hook checkboxes like a normal checkbox', async () => {
+    const repoPath = createEmptyRepository(roots);
+    mkdirSync(join(repoPath, '.git-worktree-manager'), { recursive: true });
+    writeFileSync(
+      join(repoPath, '.git-worktree-manager', 'config.toml'),
+      ['[hooks.post_worktree_create]', 'commands = ["echo backend-env"]', ''].join('\n'),
+    );
+    process.env.GIT_WORKTREE_MANAGER_REGISTRY_PATH = join(repoPath, '..', 'registry.db');
+    addRepository(repoPath, 'Harbor');
+    const fixture = await renderRepository(repoPath);
+
+    fixture.nativeElement.querySelector('[data-testid="create-worktree"]').click();
+    fixture.detectChanges();
+
+    const dialog = fixture.nativeElement.querySelector('[data-testid="create-worktree-dialog"]');
+    const checkbox = getComputedStyle(dialog.querySelector('[data-testid="create-hook"] input'));
+    expect(checkbox.width).toBe('14px');
+    expect(checkbox.height).toBe('14px');
+    const branch = getComputedStyle(dialog.querySelector('[data-testid="create-branch"]'));
+    expect(branch.height).toBe('36px');
+    expect(branch.width).not.toBe('14px');
+  });
+
   it('omits a create hook phase that has no hooks', async () => {
     const repoPath = createEmptyRepository(roots);
     mkdirSync(join(repoPath, '.git-worktree-manager'), { recursive: true });
@@ -6522,6 +6545,29 @@ describe('desktop workspace', () => {
     expect(icon.getAttribute('title')).toBe(
       'Pre-remove hooks run before the checkout is deleted. Post-remove hooks run after.',
     );
+  });
+
+  it('sizes remove hook checkboxes like a normal checkbox', async () => {
+    const repoPath = createEmptyRepository(roots);
+    git(repoPath, ['branch', 'feature']);
+    const checkout = join(repoPath, '.workspaces', 'feature');
+    git(repoPath, ['worktree', 'add', checkout, 'feature']);
+    mkdirSync(join(repoPath, '.git-worktree-manager'), { recursive: true });
+    writeFileSync(
+      join(repoPath, '.git-worktree-manager', 'config.toml'),
+      ['[hooks.pre_worktree_remove]', 'commands = ["echo backend-env"]', ''].join('\n'),
+    );
+    process.env.GIT_WORKTREE_MANAGER_REGISTRY_PATH = join(repoPath, '..', 'registry.db');
+    addRepository(repoPath, 'Harbor');
+    const fixture = await renderRepository(repoPath);
+
+    fixture.nativeElement.querySelector('[data-branch="feature"] [data-testid="remove-worktree"]').click();
+    fixture.detectChanges();
+
+    const dialog = fixture.nativeElement.querySelector('[data-testid="remove-worktree-dialog"]');
+    const checkbox = getComputedStyle(dialog.querySelector('[data-testid="remove-hook"] input'));
+    expect(checkbox.width).toBe('14px');
+    expect(checkbox.height).toBe('14px');
   });
 
   it('keeps the checkout warning on the remove dialog', async () => {

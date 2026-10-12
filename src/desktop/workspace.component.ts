@@ -612,7 +612,7 @@ button, input { font: inherit; color: inherit; }
   gap: 4px;
 }
 
-[data-testid='create-worktree-dialog'] input,
+[data-testid='create-worktree-dialog'] input:not([type='checkbox']),
 [data-testid='confirm-create-worktree'],
 [data-testid='cancel-create-worktree'] {
   box-sizing: border-box;
@@ -624,7 +624,7 @@ button, input { font: inherit; color: inherit; }
   cursor: pointer;
 }
 
-[data-testid='create-worktree-dialog'] input {
+[data-testid='create-worktree-dialog'] input:not([type='checkbox']) {
   width: 100%;
   height: 36px;
   padding: 0 8px;
@@ -661,6 +661,17 @@ button, input { font: inherit; color: inherit; }
   font-weight: 400;
   letter-spacing: 0;
   text-transform: none;
+}
+
+[data-testid='create-worktree-dialog'] [data-testid='create-hook'] input,
+[data-testid='remove-worktree-dialog'] [data-testid='remove-hook'] input {
+  width: 14px;
+  height: 14px;
+  flex: none;
+  margin: 0;
+  padding: 0;
+  accent-color: var(--forest);
+  cursor: pointer;
 }
 
 [data-testid='loading-hooks'],
