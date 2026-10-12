@@ -3051,22 +3051,36 @@ describe('desktop workspace', () => {
     expect(dialog.querySelector('h2').textContent.trim()).toBe('Create worktree');
   });
 
-  it('notes that a remote-only branch is fetched first and when create hooks run', async () => {
+  it('shows create worktree details in a tooltip beside the title', async () => {
     const fixture = await render();
     fixture.nativeElement.querySelector('[data-testid="repository"][data-name="Harbor"]').click();
     fixture.detectChanges();
 
     const sidebar = fixture.nativeElement.querySelector('[data-testid="workspace"] aside');
-    expect(sidebar.querySelector('[data-testid="create-worktree-note"]')).toBeNull();
+    expect(sidebar.querySelector('[data-testid="create-worktree-info"]')).toBeNull();
 
     fixture.nativeElement.querySelector('[data-testid="create-worktree"]').click();
     fixture.detectChanges();
 
     const dialog = fixture.nativeElement.querySelector('[data-testid="create-worktree-dialog"]');
-    const note = dialog.querySelector('[data-testid="create-worktree-note"]');
-    expect(note.textContent.trim()).toBe(
+    const title = dialog.querySelector('h2');
+    const titleText = [...title.childNodes].find(
+      (node) => node.nodeType === Node.TEXT_NODE && node.textContent?.trim() === 'Create worktree',
+    );
+    expect(titleText).toBeDefined();
+    let besideTitle = titleText?.nextSibling ?? null;
+    while (besideTitle && besideTitle.nodeType === Node.TEXT_NODE && (besideTitle.textContent ?? '').trim() === '') {
+      besideTitle = besideTitle.nextSibling;
+    }
+    expect(besideTitle).toBeInstanceOf(HTMLButtonElement);
+    const icon = besideTitle as HTMLButtonElement;
+    expect(icon.getAttribute('data-testid')).toBe('create-worktree-info');
+    expect(icon.querySelector('svg')).not.toBeNull();
+    expect(icon.getAttribute('title')).toBe(
       'A new name creates a local branch from the primary checkout, with no upstream. A remote-only branch is fetched first. Pre-create hooks run before the worktree is added. Post-create hooks run after checkout.',
     );
+    expect(dialog.querySelector('[data-testid="create-worktree-note"]')).toBeNull();
+    expect(dialog.textContent).not.toContain('A new name creates a local branch');
   });
 
   it('omits branches deleted on the remote from create worktree and still offers a local branch', async () => {

@@ -552,12 +552,33 @@ button, input { font: inherit; color: inherit; }
 }
 
 [data-testid='create-worktree-dialog'] h2 {
+  display: flex;
+  align-items: center;
+  gap: 6px;
   margin-bottom: 4px;
   color: var(--forest);
   font-family: "Space Grotesk", sans-serif;
   font-size: 20px;
   font-weight: 600;
   letter-spacing: -0.02em;
+}
+
+[data-testid='create-worktree-info'] {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  flex: none;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--forest);
+  cursor: help;
+}
+
+[data-testid='create-worktree-info'] svg {
+  display: block;
 }
 
 [data-testid='create-worktree-dialog'] label,
@@ -609,8 +630,7 @@ button, input { font: inherit; color: inherit; }
   border-color: var(--forest);
 }
 
-[data-testid='create-layout'],
-[data-testid='create-worktree-note'] {
+[data-testid='create-layout'] {
   margin: 0;
   color: var(--grid);
   font-family: "JetBrains Mono", ui-monospace, monospace;
@@ -1853,7 +1873,7 @@ button, input { font: inherit; color: inherit; }
     @if (createDialogOpen()) {
       <div data-testid="create-worktree-dialog" role="dialog" aria-label="Create worktree" (click)="dismissCreateFromBackdrop($event)">
         <section class="dialog-panel" gmOverlayScroll [attr.aria-busy]="branchNamesLoading() || creatingWorktree() ? true : null" (click)="$event.stopPropagation()">
-          <h2>Create worktree</h2>
+          <h2>Create worktree<button type="button" data-testid="create-worktree-info" title="A new name creates a local branch from the primary checkout, with no upstream. A remote-only branch is fetched first. Pre-create hooks run before the worktree is added. Post-create hooks run after checkout." aria-label="About creating a worktree"><svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><circle cx="8" cy="8" r="6.25" fill="none" stroke="currentColor" stroke-width="1.5"></circle><path fill="currentColor" d="M7.2 7.1h1.6V12H7.2zM7.2 4.2h1.6v1.6H7.2z"></path></svg></button></h2>
           <label>
             New branch
             <input
@@ -1891,9 +1911,6 @@ button, input { font: inherit; color: inherit; }
             </div>
           }
           <p data-testid="create-layout">{{ createLayoutLine() }}</p>
-          <p data-testid="create-worktree-note">
-            A new name creates a local branch from the primary checkout, with no upstream. A remote-only branch is fetched first. Pre-create hooks run before the worktree is added. Post-create hooks run after checkout.
-          </p>
           @if (workspaceError(); as message) {
             <p data-testid="workspace-error">{{ message }}</p>
           }
