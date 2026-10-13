@@ -1,6 +1,6 @@
 {
   "name": "@git-worktree-manager/main",
-  "version": "0.9.4",
+  "version": "0.9.5",
   "description": "Desktop workspace and CLI for registered git repositories",
   "type": "module",
   "bin": {
